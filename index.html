@@ -70,6 +70,7 @@
 <div class="tab-row">
   <button class="tab-btn active" onclick="switchTab('cleans')">Cleaning & Revenue</button>
   <button class="tab-btn" onclick="switchTab('blocks')">Block Growth</button>
+  <button class="tab-btn" onclick="switchTab('health')">Block Health</button>
   <button class="tab-btn" onclick="switchTab('table')">Data Table</button>
   <button class="export-btn" onclick="exportCSV()">Export CSV</button>
 </div>
@@ -92,7 +93,6 @@
       <button class="toggle-btn" onclick="setCleanFilter('project')">Project only</button>
       <button class="toggle-btn" onclick="setCleanFilter('grant')">Grant only</button>
     </div>
-    <div style="font-size:10px;color:#9b9b96;margin:-12px 0 14px;font-style:italic">Filters apply to cleans chart. Revenue, margin, and bags show all sources.</div>
     <div class="canvas-wrap"><canvas id="chart-cleans"></canvas></div>
     <div class="legend" id="legend-cleans">
       <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div> Core</div>
@@ -107,8 +107,6 @@
     <div class="chart-sub">Trash + Debris stacked · Rare=0.25, Light=0.5, Med=0.75, Heavy=1.25, Severe=2.0 · Scoring began Jun '25</div>
     <div class="canvas-wrap short"><canvas id="chart-bags"></canvas></div>
     <div class="legend" id="bags-legend"></div>
-    <div id="bags-lbs-table" style="overflow-x:auto;margin-top:12px"></div>
-    <div style="font-size:10px;color:#9b9b96;margin-top:6px;font-style:italic">Estimated: 25 lbs per bag of trash, 30 lbs per bag of debris.</div>
   </div>
 
   <div class="half-row">
@@ -150,6 +148,60 @@
     <div class="chart-sub">First clean = onboarded · Last clean >35 days = churned</div>
     <div class="canvas-wrap"><canvas id="chart-blocks-flow"></canvas></div>
     <div class="legend" id="legend-blocks-flow"></div>
+  </div>
+</div>
+
+<!-- ========== BLOCK HEALTH TAB ========== -->
+<div id="tab-health" class="tab-content">
+
+  <!-- CORE SECTION -->
+  <div style="margin-bottom:32px">
+    <h2 style="font-size:16px;font-weight:600;margin-bottom:4px">Core Blocks — Present Day Snapshot</h2>
+    <p style="font-size:12px;color:#9b9b96;margin-bottom:16px">Resident, Community, and Commercial blocks · Funded by neighbor subscribers</p>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-start">
+      <div class="chart-card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="chart-title">Block Tier Distribution</div>
+        <div class="canvas-wrap short"><canvas id="chart-core-tier"></canvas></div>
+      </div>
+      <div style="flex:1;min-width:280px;font-size:12px;line-height:1.8;color:#6b6b66;padding-top:12px">
+        <div><strong style="color:#1a7a4a">Tier 1</strong> — Fully funded (weekly cleans), 10+ subscribers. The healthiest blocks.</div>
+        <div><strong style="color:#3b9b6a">Tier 2</strong> — Strong funding (3-4 cleans/cycle), 5+ subscribers. Nearly there.</div>
+        <div><strong style="color:#b8960b">Tier 3</strong> — Partial funding (2 cleans/cycle), some subscribers. Growth opportunity.</div>
+        <div><strong style="color:#d97706">Tier 4</strong> — Low funding (1 clean/cycle), few subscribers. Needs outreach.</div>
+        <div><strong style="color:#b03a2e">Tier 5</strong> — Not funded, no subscribers. Dormant or new setup.</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-title">Subscriber Tier vs Cleaning Level — Core Blocks</div>
+      <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count</div>
+      <div id="heatmap-core"></div>
+      <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">Counts are straight block counts (not weighted by multiplier). Excludes blocks with formula errors or incomplete setup.</div>
+    </div>
+  </div>
+
+  <!-- PROJECT/GRANT SECTION -->
+  <div>
+    <h2 style="font-size:16px;font-weight:600;margin-bottom:4px">Project & Grant Blocks — Present Day Snapshot</h2>
+    <p style="font-size:12px;color:#9b9b96;margin-bottom:16px">Funded by project owners and grants (SSNE, SSW, TCB, etc.)</p>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-start">
+      <div class="chart-card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="chart-title">Block Tier Distribution</div>
+        <div class="canvas-wrap short"><canvas id="chart-proj-tier"></canvas></div>
+      </div>
+      <div style="flex:1;min-width:280px;font-size:12px;line-height:1.8;color:#6b6b66;padding-top:12px">
+        <div>Project blocks typically sit at Tier 3–5 because subscriber count is low by design (the project owner is the single paying entity, not neighbors).</div>
+        <div style="margin-top:6px">Cleaning level is set by the grant/project agreement, not by organic subscriber density.</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-title">Subscriber Tier vs Cleaning Level — Project/Grant Blocks</div>
+      <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count</div>
+      <div id="heatmap-proj"></div>
+    </div>
   </div>
 </div>
 
@@ -330,9 +382,10 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
   document.querySelectorAll('.tab-row .tab-btn').forEach((b, i) => {
-    b.classList.toggle('active', ['cleans', 'blocks', 'table'][i] === tab);
+    b.classList.toggle('active', ['cleans', 'blocks', 'health', 'table'][i] === tab);
   });
   if (tab === 'table') renderTable();
+  if (tab === 'health') renderHealthTab();
 }
 
 function setBlockFilter(f) {
@@ -448,7 +501,7 @@ function renderCleanCharts() {
             font: { size: 9, weight: '500' }, color: '#6b6b66',
             formatter: (value, ctx) => {
               // Only show total on the first (top) dataset
-              if (ctx.datasetIndex !== 1) return '';
+              if (ctx.datasetIndex !== 0) return '';
               const d = bagsData[ctx.dataIndex];
               const total = Math.round((d.trash_bags || 0) + (d.debris_bags || 0));
               return total > 0 ? total.toLocaleString() : '';
@@ -468,21 +521,6 @@ function renderCleanCharts() {
   if (bagLeg) {
     bagLeg.innerHTML = '<div class="legend-item"><div class="legend-dot" style="background:#b8960b"></div> Trash</div>'
       + '<div class="legend-item"><div class="legend-dot" style="background:#78716c"></div> Debris</div>';
-  }
-
-// Pounds table
-  const lbsDiv = document.getElementById('bags-lbs-table');
-  if (lbsDiv && bagsData.length > 0) {
-    const hdr = bagsData.map(d => `<th style="padding:4px 6px;font-size:9px;font-weight:500;color:#6b6b66;white-space:nowrap">${shortM(d.month)}</th>`).join('');
-    const trashRow = bagsData.map(d => `<td style="padding:4px 6px;font-size:10px;text-align:right">${Math.round((d.trash_bags||0)*25).toLocaleString()}</td>`).join('');
-    const debrisRow = bagsData.map(d => `<td style="padding:4px 6px;font-size:10px;text-align:right">${Math.round((d.debris_bags||0)*30).toLocaleString()}</td>`).join('');
-    const totalRow = bagsData.map(d => `<td style="padding:4px 6px;font-size:10px;text-align:right;font-weight:600">${Math.round((d.trash_bags||0)*25+(d.debris_bags||0)*30).toLocaleString()}</td>`).join('');
-    lbsDiv.innerHTML = `<table style="width:100%;border-collapse:collapse;font-family:inherit">
-      <tr style="border-bottom:1px solid #f0eee8"><th style="padding:4px 6px;font-size:9px;text-align:left;color:#6b6b66">lbs</th>${hdr}</tr>
-      <tr style="border-bottom:1px solid #f0eee8"><td style="padding:4px 6px;font-size:10px;color:#b8960b;white-space:nowrap">Trash</td>${trashRow}</tr>
-      <tr style="border-bottom:1px solid #f0eee8"><td style="padding:4px 6px;font-size:10px;color:#78716c;white-space:nowrap">Debris</td>${debrisRow}</tr>
-      <tr><td style="padding:4px 6px;font-size:10px;font-weight:600;white-space:nowrap">Total lbs</td>${totalRow}</tr>
-    </table>`;
   }
 
   // Margin chart
@@ -660,6 +698,107 @@ function exportCSV() {
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'glitter_ops_dashboard.csv';
   a.click();
+}
+
+// ── Block Health Tab ──
+const TIER_COLORS = ['#1a7a4a','#3b9b6a','#b8960b','#d97706','#b03a2e'];
+const TIER_LABELS = ['Tier 1','Tier 2','Tier 3','Tier 4','Tier 5'];
+const SUB_TIERS = ['Sub Tier 1 (10+)','Sub Tier 2 (5-9)','Sub Tier 3 (1-4)','Sub Tier 4 (0)'];
+const CLEAN_TIERS = ['Block Tier 1 (Weekly)','Block Tier 2 (3/4)','Block Tier 3 (2/4)','Block Tier 4 (1/4)','Not Funded'];
+
+// Snapshot data — refreshed by refresh.js alongside cleaning/block data
+const HEALTH_DATA = {
+  core: {
+    tiers: {"Tier 1":90,"Tier 2":229,"Tier 3":239,"Tier 4":246,"Tier 5":84},
+    heatmap: {"Sub Tier 1 (10+)|Block Tier 1 (Weekly)":29,"Sub Tier 1 (10+)|Block Tier 2 (3/4)":4,"Sub Tier 1 (10+)|Block Tier 3 (2/4)":7,"Sub Tier 1 (10+)|Block Tier 4 (1/4)":1,"Sub Tier 1 (10+)|Not Funded":0,"Sub Tier 2 (5-9)|Block Tier 1 (Weekly)":30,"Sub Tier 2 (5-9)|Block Tier 2 (3/4)":16,"Sub Tier 2 (5-9)|Block Tier 3 (2/4)":29,"Sub Tier 2 (5-9)|Block Tier 4 (1/4)":18,"Sub Tier 2 (5-9)|Not Funded":4,"Sub Tier 3 (1-4)|Block Tier 1 (Weekly)":87,"Sub Tier 3 (1-4)|Block Tier 2 (3/4)":9,"Sub Tier 3 (1-4)|Block Tier 3 (2/4)":33,"Sub Tier 3 (1-4)|Block Tier 4 (1/4)":161,"Sub Tier 3 (1-4)|Not Funded":313,"Sub Tier 4 (0)|Block Tier 1 (Weekly)":2,"Sub Tier 4 (0)|Block Tier 2 (3/4)":0,"Sub Tier 4 (0)|Block Tier 3 (2/4)":0,"Sub Tier 4 (0)|Block Tier 4 (1/4)":1,"Sub Tier 4 (0)|Not Funded":144},
+    total: 888
+  },
+  proj: {
+    tiers: {"Tier 1":0,"Tier 2":0,"Tier 3":150,"Tier 4":3,"Tier 5":100},
+    heatmap: {"Sub Tier 1 (10+)|Block Tier 1 (Weekly)":0,"Sub Tier 1 (10+)|Block Tier 2 (3/4)":0,"Sub Tier 1 (10+)|Block Tier 3 (2/4)":0,"Sub Tier 1 (10+)|Block Tier 4 (1/4)":0,"Sub Tier 1 (10+)|Not Funded":1,"Sub Tier 2 (5-9)|Block Tier 1 (Weekly)":0,"Sub Tier 2 (5-9)|Block Tier 2 (3/4)":0,"Sub Tier 2 (5-9)|Block Tier 3 (2/4)":0,"Sub Tier 2 (5-9)|Block Tier 4 (1/4)":0,"Sub Tier 2 (5-9)|Not Funded":1,"Sub Tier 3 (1-4)|Block Tier 1 (Weekly)":0,"Sub Tier 3 (1-4)|Block Tier 2 (3/4)":1,"Sub Tier 3 (1-4)|Block Tier 3 (2/4)":128,"Sub Tier 3 (1-4)|Block Tier 4 (1/4)":21,"Sub Tier 3 (1-4)|Not Funded":101,"Sub Tier 4 (0)|Block Tier 1 (Weekly)":0,"Sub Tier 4 (0)|Block Tier 2 (3/4)":0,"Sub Tier 4 (0)|Block Tier 3 (2/4)":0,"Sub Tier 4 (0)|Block Tier 4 (1/4)":0,"Sub Tier 4 (0)|Not Funded":0},
+    total: 253
+  }
+};
+
+let healthRendered = false;
+
+function renderHealthTab() {
+  if (healthRendered) return;
+  healthRendered = true;
+  renderTierDonut('chart-core-tier', HEALTH_DATA.core, 'Core');
+  renderTierDonut('chart-proj-tier', HEALTH_DATA.proj, 'Project');
+  renderHeatmap('heatmap-core', HEALTH_DATA.core);
+  renderHeatmap('heatmap-proj', HEALTH_DATA.proj);
+}
+
+function renderTierDonut(canvasId, data, label) {
+  const vals = TIER_LABELS.map(t => data.tiers[t] || 0);
+  new Chart(document.getElementById(canvasId), {
+    type: 'doughnut',
+    data: {
+      labels: TIER_LABELS,
+      datasets: [{ data: vals, backgroundColor: TIER_COLORS, borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '55%',
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          color: '#fff', font: { size: 11, weight: '600' },
+          formatter: (v, ctx) => {
+            if (v === 0) return '';
+            const pct = Math.round(v / data.total * 100);
+            return `${pct}%`;
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderHeatmap(containerId, data) {
+  const container = document.getElementById(containerId);
+  const maxVal = Math.max(...Object.values(data.heatmap), 1);
+
+  // Short labels for columns
+  const colLabels = ['Weekly', '3/4 Cycle', '2/4 Cycle', '1/4 Cycle', 'Not Funded'];
+  const rowLabels = ['10+ subs', '5-9 subs', '1-4 subs', '0 subs'];
+
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  // Header
+  html += '<tr><th style="padding:8px;text-align:left;color:#6b6b66;font-size:10px;font-weight:600"></th>';
+  colLabels.forEach(c => { html += `<th style="padding:8px;text-align:center;color:#6b6b66;font-size:10px;font-weight:600;white-space:nowrap">${c}</th>`; });
+  html += '<th style="padding:8px;text-align:center;color:#6b6b66;font-size:10px;font-weight:600">Total</th></tr>';
+
+  // Rows
+  SUB_TIERS.forEach((st, si) => {
+    html += `<tr><td style="padding:8px 10px;font-weight:600;font-size:11px;white-space:nowrap;color:#1a1a18">${rowLabels[si]}</td>`;
+    let rowTotal = 0;
+    CLEAN_TIERS.forEach(ct => {
+      const v = data.heatmap[`${st}|${ct}`] || 0;
+      rowTotal += v;
+      const intensity = v / maxVal;
+      const bg = v === 0 ? '#f7f6f3' :
+        `rgba(26,122,74,${Math.max(0.08, Math.min(0.75, intensity))})`;
+      const textColor = intensity > 0.4 ? '#fff' : '#1a1a18';
+      html += `<td style="padding:8px;text-align:center;font-weight:${v > 0 ? '600' : '400'};background:${bg};color:${textColor};border:2px solid #fff;border-radius:4px;min-width:56px">${v || '—'}</td>`;
+    });
+    html += `<td style="padding:8px;text-align:center;font-weight:600;color:#6b6b66;background:#f0efe8;border:2px solid #fff;border-radius:4px">${rowTotal}</td>`;
+    html += '</tr>';
+  });
+
+  // Column totals
+  html += '<tr><td style="padding:8px 10px;font-weight:600;font-size:11px;color:#6b6b66">Total</td>';
+  let grand = 0;
+  CLEAN_TIERS.forEach(ct => {
+    const col = SUB_TIERS.reduce((s, st) => s + (data.heatmap[`${st}|${ct}`] || 0), 0);
+    grand += col;
+    html += `<td style="padding:8px;text-align:center;font-weight:600;color:#6b6b66;background:#f0efe8;border:2px solid #fff;border-radius:4px">${col}</td>`;
+  });
+  html += `<td style="padding:8px;text-align:center;font-weight:700;color:#1a1a18;background:#e0dfd8;border:2px solid #fff;border-radius:4px">${grand}</td>`;
+  html += '</tr></table>';
+
+  container.innerHTML = html;
 }
 
 // ── Init ──
