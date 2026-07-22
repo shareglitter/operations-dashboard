@@ -94,6 +94,7 @@
       <button class="toggle-btn" onclick="setCleanFilter('project')">Project only</button>
       <button class="toggle-btn" onclick="setCleanFilter('grant')">Grant only</button>
     </div>
+    <div style="font-size:10px;color:#9b9b96;margin:-12px 0 14px;font-style:italic">Filters apply to cleans chart. Revenue, margin, and bags show all sources.</div>
     <div class="canvas-wrap"><canvas id="chart-cleans"></canvas></div>
     <div class="legend" id="legend-cleans">
       <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div> Core</div>
@@ -108,6 +109,8 @@
     <div class="chart-sub">Trash + Debris stacked · Rare=0.25, Light=0.5, Med=0.75, Heavy=1.25, Severe=2.0 · Scoring began Jun '25</div>
     <div class="canvas-wrap short"><canvas id="chart-bags"></canvas></div>
     <div class="legend" id="bags-legend"></div>
+    <div id="bags-lbs-table" style="overflow-x:auto;margin-top:12px"></div>
+    <div style="font-size:10px;color:#9b9b96;margin-top:6px;font-style:italic">Estimated: 25 lbs per bag of trash, 30 lbs per bag of debris.</div>
   </div>
 
   <div class="half-row">
@@ -504,7 +507,7 @@ function renderCleanCharts() {
             font: { size: 9, weight: '500' }, color: '#6b6b66',
             formatter: (value, ctx) => {
               // Only show total on the first (top) dataset
-              if (ctx.datasetIndex !== 0) return '';
+              if (ctx.datasetIndex !== 1) return '';
               const d = bagsData[ctx.dataIndex];
               const total = Math.round((d.trash_bags || 0) + (d.debris_bags || 0));
               return total > 0 ? total.toLocaleString() : '';
@@ -525,6 +528,21 @@ function renderCleanCharts() {
     bagLeg.innerHTML = '<div class="legend-item"><div class="legend-dot" style="background:#b8960b"></div> Trash</div>'
       + '<div class="legend-item"><div class="legend-dot" style="background:#78716c"></div> Debris</div>';
   }
+
+  // Pounds table
+  const lbsDiv = document.getElementById('bags-lbs-table');
+  if (lbsDiv && bagsData.length > 0) {
+    const hdr = bagsData.map(d => `<th style="padding:4px 6px;font-size:9px;font-weight:500;color:#6b6b66;white-space:nowrap">${shortM(d.month)}</th>`).join('');
+    const trashRow = bagsData.map(d => `<td style="padding:4px 6px;font-size:10px;text-align:right">${Math.round((d.trash_bags||0)*25).toLocaleString()}</td>`).join('');
+    const debrisRow = bagsData.map(d => `<td style="padding:4px 6px;font-size:10px;text-align:right">${Math.round((d.debris_bags||0)*30).toLocaleString()}</td>`).join('');
+    const totalRow = bagsData.map(d => `<td style="padding:4px 6px;font-size:10px;text-align:right;font-weight:600">${Math.round((d.trash_bags||0)*25+(d.debris_bags||0)*30).toLocaleString()}</td>`).join('');
+    lbsDiv.innerHTML = `<table style="width:100%;border-collapse:collapse;font-family:inherit">
+      <tr style="border-bottom:1px solid #f0eee8"><th style="padding:4px 6px;font-size:9px;text-align:left;color:#6b6b66">lbs</th>${hdr}</tr>
+      <tr style="border-bottom:1px solid #f0eee8"><td style="padding:4px 6px;font-size:10px;color:#b8960b;white-space:nowrap">Trash</td>${trashRow}</tr>
+      <tr style="border-bottom:1px solid #f0eee8"><td style="padding:4px 6px;font-size:10px;color:#78716c;white-space:nowrap">Debris</td>${debrisRow}</tr>
+      <tr><td style="padding:4px 6px;font-size:10px;font-weight:600;white-space:nowrap">Total lbs</td>${totalRow}</tr>
+    </table>`;
+    }
 
   // Margin chart
   if (charts.margin) charts.margin.destroy();
