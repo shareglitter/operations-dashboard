@@ -205,12 +205,7 @@
         <div class="chart-title">Block Tier Distribution</div>
         <div class="canvas-wrap short"><canvas id="chart-proj-tier"></canvas></div>
       </div>
-      <div style="font-size:12px;line-height:2;color:#1a1a18;padding:12px 0 8px">
-        <div style="display:flex;gap:8px;align-items:center"><span style="width:10px;height:10px;background:#b8960b;border-radius:2px;flex-shrink:0"></span><strong>Tier 3:</strong> 150</div>
-        <div style="display:flex;gap:8px;align-items:center"><span style="width:10px;height:10px;background:#d97706;border-radius:2px;flex-shrink:0"></span><strong>Tier 4:</strong> 3</div>
-        <div style="display:flex;gap:8px;align-items:center"><span style="width:10px;height:10px;background:#b03a2e;border-radius:2px;flex-shrink:0"></span><strong>Tier 5:</strong> 100</div>
-        <div style="margin-top:4px;color:#6b6b66"><strong>Total: 253</strong> project blocks</div>
-      </div>
+   
       <div style="flex:1;min-width:280px;font-size:12px;line-height:1.8;color:#6b6b66;padding-top:12px">
         <div>Project blocks typically sit at Tier 3–5 because subscriber count is low by design (the project owner is the single paying entity, not neighbors).</div>
         <div style="margin-top:6px">Cleaning level is set by the grant/project agreement, not by organic subscriber density.</div>
@@ -751,8 +746,8 @@ function renderHealthTab() {
 }
 
 function renderTierBars(canvasId, data, label) {
-  const activeLabels = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4'];
-  const dormantLabels = ['Tier 5', 'Tier 6'];
+  const activeLabels = ['Tier 1', 'Tier 2', 'Tier 3', ];
+  const dormantLabels = ['Tier 4','Tier 5', 'Tier 6'];
   const labels = [...activeLabels, '', ...dormantLabels];
   const vals = labels.map(t => t ? (data.tiers[t] || 0) : null);
   const colors = labels.map((t, i) => {
@@ -809,8 +804,8 @@ function renderTierBars(canvasId, data, label) {
     canvas.parentElement.appendChild(summaryDiv);
   }
   summaryDiv.innerHTML =
-    `<div><strong style="color:#1a7a4a">Active/Growing (Tier 1–4):</strong> ${activeTotal.toLocaleString()} blocks</div>` +
-    `<div><strong style="color:#6b6b66">Churned/Dormant (Tier 5–6):</strong> ${dormantTotal.toLocaleString()} blocks</div>` +
+    `<div><strong style="color:#1a7a4a">Active/Growing (Tier 1–3):</strong> ${activeTotal.toLocaleString()} blocks</div>` +
+    `<div><strong style="color:#6b6b66">Churned/Dormant (Tier 4–6):</strong> ${dormantTotal.toLocaleString()} blocks</div>` +
     `<div style="color:#9b9b96"><strong>Total:</strong> ${data.total.toLocaleString()} ${label.toLowerCase()} blocks</div>`;
 }
 
