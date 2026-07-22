@@ -1,0 +1,34 @@
+# Glitter Ops Dashboard — Automated Monthly Refresh
+# Runs on the 2nd of each month at 6am ET (allow a day buffer for month-end cleans)
+# Pulls fresh data from Airtable, updates data.js, and commits
+# Netlify auto-deploys from the commit
+
+name: Monthly Data Refresh
+
+on:
+  schedule:
+    - cron: '0 10 2 * *'  # 2nd of each month, 10:00 UTC (6am ET)
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run refresh script
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+        run: node refresh.js
+
+      - name: Commit and push updated data
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data.js
+          # Only commit if data.js actually changed
+          git diff --cached --quiet || (git commit -m "Monthly data refresh $(date +%Y-%m)" && git push)

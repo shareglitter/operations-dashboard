@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glitter Operations Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="data.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f6f3; color: #1a1a18; min-height: 100vh; padding: 28px 24px 40px; }
+  .header { margin-bottom: 20px; }
+  .header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+  .header p { font-size: 12px; color: #6b6b66; margin-top: 4px; }
+  .tab-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+  .tab-btn { font-size: 13px; font-weight: 500; padding: 7px 18px; border-radius: 8px; border: 1px solid #d0cfc8; background: #fff; color: #6b6b66; cursor: pointer; transition: all 0.15s; }
+  .tab-btn.active { background: #1a1a18; color: #fff; border-color: #1a1a18; }
+  .export-btn { margin-left: auto; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 8px; border: none; background: #2563eb; color: #fff; cursor: pointer; }
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat { background: #fff; border: 0.5px solid #e0dfd8; border-radius: 10px; padding: 14px 16px; text-align: center; }
+  .stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: #6b6b66; margin-bottom: 6px; }
+  .stat-value { font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
+  .stat-sub { font-size: 11px; color: #9b9b96; margin-top: 3px; }
+  .chart-card { background: #fff; border: 0.5px solid #e0dfd8; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .chart-sub { font-size: 12px; color: #9b9b96; margin-bottom: 16px; }
+  .canvas-wrap { position: relative; height: 280px; }
+  .canvas-wrap.short { height: 200px; }
+  .toggle-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .toggle-btn { font-size: 11px; font-weight: 500; padding: 4px 12px; border-radius: 6px; border: 0.5px solid #d0cfc8; background: #fff; color: #6b6b66; cursor: pointer; transition: all 0.15s; }
+  .toggle-btn.active { background: #1a1a18; color: #fff; border-color: #1a1a18; }
+  .legend { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6b66; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .legend-line { width: 18px; height: 2px; flex-shrink: 0; border-radius: 1px; }
+  .half-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .loading { display: flex; align-items: center; justify-content: center; height: 200px; color: #9b9b96; font-size: 13px; gap: 8px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid #e0dfd8; border-top-color: #1a1a18; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { background: #fff8f7; border: 0.5px solid #f0c8c4; border-radius: 10px; padding: 16px 20px; font-size: 13px; color: #7a2e28; margin-bottom: 16px; display: none; }
+  .footer { font-size: 11px; color: #b0b0a8; text-align: right; margin-top: 12px; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .data-table { width: 100%; font-size: 11px; border-collapse: collapse; }
+  .data-table th { background: #f0efe8; padding: 8px 6px; text-align: right; font-weight: 600; font-size: 10px; white-space: nowrap; position: sticky; top: 0; }
+  .data-table th:first-child { text-align: left; }
+  .data-table td { padding: 6px; text-align: right; border-bottom: 1px solid #f0efe8; }
+  .data-table td:first-child { text-align: left; font-weight: 500; white-space: nowrap; }
+  .data-table tr.partial { background: #fffbeb; }
+  .data-table tfoot td { font-weight: 600; background: #f0efe8; padding: 8px 6px; }
+  .table-wrap { max-height: 600px; overflow: auto; border-radius: 10px; border: 0.5px solid #e0dfd8; }
+  .table-note { font-size: 10px; color: #9b9b96; margin-top: 8px; font-style: italic; }
+  @media (max-width: 640px) {
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+    .half-row { grid-template-columns: 1fr; }
+    body { padding: 20px 16px 32px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Glitter Operations Dashboard</h1>
+  <p id="header-sub">Single source of truth · Loading…</p>
+</div>
+
+<div id="error-msg" class="error"></div>
+
+<div class="tab-row">
+  <button class="tab-btn active" onclick="switchTab('cleans')">Cleaning & Revenue</button>
+  <button class="tab-btn" onclick="switchTab('blocks')">Block Growth</button>
+  <button class="tab-btn" onclick="switchTab('table')">Data Table</button>
+  <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+</div>
+
+<!-- ========== CLEANING TAB ========== -->
+<div id="tab-cleans" class="tab-content active">
+  <div class="stat-row" id="stats-cleans">
+    <div class="stat"><div class="stat-label">Total Cleans</div><div class="stat-value" id="sc-total"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub" id="sc-total-sub">all time</div></div>
+    <div class="stat"><div class="stat-label">Bags Diverted</div><div class="stat-value" style="color:#b8960b" id="sc-bags">—</div><div class="stat-sub">scored from Jun '25</div></div>
+    <div class="stat"><div class="stat-label">Last Full Month</div><div class="stat-value" style="color:#2563eb" id="sc-last">—</div><div class="stat-sub" id="sc-last-sub"></div></div>
+    <div class="stat"><div class="stat-label">All-Time Revenue</div><div class="stat-value" style="color:#1a7a4a" id="sc-rev">—</div><div class="stat-sub" id="sc-rev-sub"></div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Cleans per Month</div>
+    <div class="chart-sub">Stacked Core / Project / Grant — Revenue line on right axis</div>
+    <div class="canvas-wrap"><canvas id="chart-cleans"></canvas></div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div> Core</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div> Project</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#14b8a6"></div> Grant</div>
+      <div class="legend-item"><div class="legend-line" style="background:#f97316"></div> Revenue</div>
+    </div>
+  </div>
+
+  <div class="chart-card" id="bags-card" style="display:none">
+    <div class="chart-title">Bags of Trash Diverted per Month</div>
+    <div class="chart-sub">Rare=0.25, Light=0.5, Med=0.75, Heavy=1.25, Severe=2.0 per clean · Scoring began Jun '25</div>
+    <div class="canvas-wrap short"><canvas id="chart-bags"></canvas></div>
+  </div>
+
+  <div class="half-row">
+    <div class="chart-card" style="margin-bottom:0">
+      <div class="chart-title">Revenue vs Gross Margin</div>
+      <div class="canvas-wrap short"><canvas id="chart-margin"></canvas></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:0">
+      <div class="chart-title">Core Cleans Only</div>
+      <div class="canvas-wrap short"><canvas id="chart-core"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== BLOCKS TAB ========== -->
+<div id="tab-blocks" class="tab-content">
+  <div class="stat-row" id="stats-blocks">
+    <div class="stat"><div class="stat-label">Active Blocks</div><div class="stat-value" style="color:#1a7a4a" id="sb-total"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub" id="sb-total-sub"></div></div>
+    <div class="stat"><div class="stat-label">Core Blocks</div><div class="stat-value" style="color:#1a7a4a" id="sb-core">—</div><div class="stat-sub">Resident / Community / Comm.</div></div>
+    <div class="stat"><div class="stat-label">Project Blocks</div><div class="stat-value" id="sb-proj">—</div><div class="stat-sub">Grant & project-funded</div></div>
+    <div class="stat"><div class="stat-label">Churned Last Mo</div><div class="stat-value" style="color:#b03a2e" id="sb-churn">—</div><div class="stat-sub">last clean >35 days</div></div>
+  </div>
+
+  <div class="toggle-row" id="toggle-blocks">
+    <button class="toggle-btn active" onclick="setBlockFilter('all')">All blocks</button>
+    <button class="toggle-btn" onclick="setBlockFilter('core')">Core only</button>
+    <button class="toggle-btn" onclick="setBlockFilter('project')">Project only</button>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Cumulative Active Blocks</div>
+    <div class="chart-sub">Active = last clean within 35 days of month-end</div>
+    <div class="canvas-wrap"><canvas id="chart-blocks-cum"></canvas></div>
+    <div class="legend" id="legend-blocks-cum"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">New Blocks vs Churned per Month</div>
+    <div class="chart-sub">First clean = onboarded · Last clean >35 days = churned</div>
+    <div class="canvas-wrap"><canvas id="chart-blocks-flow"></canvas></div>
+    <div class="legend" id="legend-blocks-flow"></div>
+  </div>
+</div>
+
+<!-- ========== TABLE TAB ========== -->
+<div id="tab-table" class="tab-content">
+  <div class="table-wrap" id="table-wrap"></div>
+  <div class="table-note">* Current month is partial. Revenue = $50 × multiplier. COGS = cleaner payout. Bags from Trash+Debris scores (Jun '25+). Block churn = last clean >35 days.</div>
+</div>
+
+<div class="footer" id="footer-ts"></div>
+
+<script>
+// ── Config ──
+// No API token in client code — all AT calls go through the Netlify function proxy
+const BLOCKS_TABLE = 'tblssvtXzgL200hSi';
+const CLEANS_TABLE = 'tblaDXbhz6DEcytgh';
+const CHURN_DAYS = 35;
+const BAG_MAP = { rare:0.25, light:0.5, medium:0.75, heavy:1.25, severe:2.0 };
+
+// ── State ──
+let allCleans = [...HIST_CLEANS];
+let allBlocks = [...HIST_BLOCKS];
+let blockFilter = 'all';
+let charts = {};
+
+// ── Helpers ──
+const shortM = m => { const ms = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const [y,mo] = m.split('-'); return `${ms[+mo-1]} '${y.slice(2)}`; };
+const fD = n => `$${(n/1000).toFixed(n >= 100000 ? 0 : 1)}K`;
+const fN = n => n.toLocaleString();
+const sumF = (arr, k) => arr.reduce((s, d) => s + (d[k] || 0), 0);
+
+function xLabels(data) {
+  return data.map((d, i) => {
+    const mo = parseInt(d.month.split('-')[1]);
+    if (data.length > 24) return (mo === 1 || mo === 7) ? shortM(d.month) : '';
+    return shortM(d.month);
+  });
+}
+
+// ── AT API fetch (through Netlify function proxy) ──
+async function fetchAT(tableId, fields, filter) {
+  const res = await fetch('/.netlify/functions/at-proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table: tableId, fields, filter: filter || undefined })
+  });
+  if (!res.ok) throw new Error(`Proxy ${res.status}`);
+  const data = await res.json();
+  return data.records;
+}
+
+// ── Compute current month cleaning data ──
+async function fetchCurrentMonthCleans() {
+  const now = new Date();
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const firstOfMonth = `${monthStr}-01`;
+
+  // Check if we already have this month in historical data
+  if (HIST_CLEANS.some(d => d.month === monthStr)) return;
+
+  try {
+    const filter = `IS_AFTER({Date and Time}, '${firstOfMonth}')`;
+    const records = await fetchAT(CLEANS_TABLE,
+      ['Date and Time', 'Projects', 'Multiplier', 'Payout', 'Trash', 'Debris'], filter);
+
+    let core = 0, proj = 0, grant = 0, rev = 0, cogs = 0, bags = 0;
+    for (const r of records) {
+      const f = r.fields;
+      if (!f['Date and Time']) continue;
+      const mult = f['Multiplier'] || 1;
+      const payout = f['Payout'] || 25;
+      const project = f['Projects'] || null;
+
+      if (project === 'SSNE' || project === 'SSW') grant++;
+      else if (project) proj++;
+      else core++;
+
+      rev += 50 * mult;
+      cogs += payout;
+
+      const trashName = (f['Trash'] || '').toLowerCase().split('.')[0].trim();
+      const debrisName = (f['Debris'] || '').toLowerCase().split('.')[0].trim();
+      bags += (BAG_MAP[trashName] || 0) + (BAG_MAP[debrisName] || 0);
+    }
+
+    const total = core + proj + grant;
+    const gm = rev - cogs;
+    allCleans.push({
+      month: monthStr, core_cleans: core, project_cleans: proj, grant_cleans: grant,
+      total_cleans: total, revenue: Math.round(rev), cogs: Math.round(cogs),
+      gross_margin: Math.round(gm), gm_pct: total ? Math.round(gm / rev * 1000) / 10 : 0,
+      bags: Math.round(bags * 100) / 100, _partial: true
+    });
+  } catch (e) {
+    console.warn('Could not fetch current month cleans:', e);
+  }
+}
+
+// ── Compute block series from live AT data ──
+async function fetchBlockData() {
+  try {
+    const records = await fetchAT(BLOCKS_TABLE,
+      ['First Clean Date', 'Last Clean Date', 'Funding Type', 'Projects']);
+
+    const blocks = [];
+    for (const r of records) {
+      const f = r.fields;
+      if (!f['First Clean Date'] || !f['Last Clean Date']) continue;
+      blocks.push({
+        first: new Date(f['First Clean Date']),
+        last: new Date(f['Last Clean Date']),
+        isProject: (f['Funding Type'] === 'Project') || !!f['Projects']
+      });
+    }
+
+    // Rebuild the current month's block data
+    const now = new Date();
+    const curY = now.getFullYear(), curM = now.getMonth() + 1;
+    const curMonthStr = `${curY}-${String(curM).padStart(2, '0')}`;
+    const me = new Date(curM === 12 ? curY + 1 : curY, curM === 12 ? 0 : curM, 1);
+
+    // For partial month: use TODAY as reference, not month-end
+    const today = new Date(curY, curM - 1, now.getDate() + 1); // end of today
+    const cutoff = new Date(today.getTime() - CHURN_DAYS * 86400000);
+    const ms = new Date(curY, curM - 1, 1);
+
+    // Get previous month's active set for churn calc
+    const prevEntry = allBlocks[allBlocks.length - 1];
+    const prevMe = new Date(curY, curM - 1, 1); // start of current month = end of prev
+    const prevCutoff = new Date(prevMe.getTime() - CHURN_DAYS * 86400000);
+
+    const prevActive = new Set();
+    const curActive = new Set();
+    let coreA = 0, projA = 0, newC = 0, newP = 0;
+
+    blocks.forEach((b, i) => {
+      if (b.first <= prevMe && b.last >= prevCutoff) prevActive.add(i);
+      if (b.first <= today && b.last >= cutoff) {
+        curActive.add(i);
+        b.isProject ? projA++ : coreA++;
+      }
+      if (b.first >= ms && b.first < today) {
+        b.isProject ? newP++ : newC++;
+      }
+    });
+
+    const churned = [...prevActive].filter(i => !curActive.has(i)).length;
+
+    // Only add if not already in historical
+    if (!HIST_BLOCKS.some(d => d.month === curMonthStr)) {
+      allBlocks.push({
+        month: curMonthStr, core_active: coreA, proj_active: projA,
+        total_active: coreA + projA, new_core: newC, new_proj: newP,
+        churned, net: (newC + newP) - churned, _partial: true
+      });
+    }
+
+    updateBlockStats();
+    renderBlockCharts();
+  } catch (e) {
+    console.warn('Could not fetch block data:', e);
+    // Fall back to historical only
+    updateBlockStats();
+    renderBlockCharts();
+  }
+}
+
+// ── Tab switching ──
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelectorAll('.tab-row .tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['cleans', 'blocks', 'table'][i] === tab);
+  });
+  if (tab === 'table') renderTable();
+}
+
+function setBlockFilter(f) {
+  blockFilter = f;
+  document.querySelectorAll('#toggle-blocks .toggle-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['all', 'core', 'project'][i] === f);
+  });
+  renderBlockCharts();
+}
+
+// ── Cleaning charts ──
+function renderCleanCharts() {
+  const data = allCleans;
+  const labels = xLabels(data);
+  const last = data.find(d => !d._partial) ? data.filter(d => !d._partial).pop() : data[data.length - 2];
+
+  // Stats
+  const totalCleans = sumF(data, 'total_cleans');
+  const totalRev = sumF(data, 'revenue');
+  const totalCogs = sumF(data, 'cogs');
+  const totalBags = sumF(data, 'bags');
+  document.getElementById('sc-total').textContent = fN(totalCleans);
+  document.getElementById('sc-total-sub').textContent = 'since Sep \'21';
+  document.getElementById('sc-bags').textContent = `${(totalBags / 1000).toFixed(1)}K`;
+  document.getElementById('sc-last').textContent = fN(last.total_cleans);
+  document.getElementById('sc-last-sub').textContent = shortM(last.month);
+  document.getElementById('sc-rev').textContent = fD(totalRev);
+  document.getElementById('sc-rev-sub').textContent = `${Math.round((totalRev - totalCogs) / totalRev * 100)}% gross margin`;
+
+  // Cleans stacked bar + revenue line
+  if (charts.cleans) charts.cleans.destroy();
+  charts.cleans = new Chart(document.getElementById('chart-cleans'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Core', data: data.map(d => d.core_cleans), backgroundColor: '#2563eb', stack: 'c' },
+        { label: 'Project', data: data.map(d => d.project_cleans), backgroundColor: '#8b5cf6', stack: 'c' },
+        { label: 'Grant', data: data.map(d => d.grant_cleans), backgroundColor: '#14b8a6', stack: 'c', borderRadius: { topLeft: 3, topRight: 3 } },
+        { label: 'Revenue ($K)', data: data.map(d => d.revenue / 1000), type: 'line', borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, yAxisID: 'y1', tension: 0.3, order: 0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, datalabels: false },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+        y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 }, callback: v => v >= 1000 ? `${v/1000}K` : v }, beginAtZero: true },
+        y1: { position: 'right', grid: { display: false }, ticks: { font: { size: 10 }, color: '#f97316', callback: v => `$${v}K` }, beginAtZero: true }
+      }
+    }
+  });
+
+  // Bags chart
+  const bagsData = data.filter(d => d.bags > 0);
+  if (bagsData.length > 0) {
+    document.getElementById('bags-card').style.display = 'block';
+    if (charts.bags) charts.bags.destroy();
+    charts.bags = new Chart(document.getElementById('chart-bags'), {
+      type: 'line',
+      data: {
+        labels: bagsData.map(d => shortM(d.month)),
+        datasets: [{ label: 'Bags', data: bagsData.map(d => Math.round(d.bags)), borderColor: '#b8960b', backgroundColor: 'rgba(184,150,11,0.1)', fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#b8960b' }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: false }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true } } }
+    });
+  }
+
+  // Margin chart
+  if (charts.margin) charts.margin.destroy();
+  charts.margin = new Chart(document.getElementById('chart-margin'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Revenue', data: data.map(d => d.revenue), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.06)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
+        { label: 'Gross Margin', data: data.map(d => d.gross_margin), borderColor: '#1a7a4a', backgroundColor: 'rgba(26,122,74,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: false }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 9 }, callback: v => `$${v/1000}K` }, beginAtZero: true } } }
+  });
+
+  // Core cleans bar
+  if (charts.core) charts.core.destroy();
+  charts.core = new Chart(document.getElementById('chart-core'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Core Cleans', data: data.map(d => d.core_cleans), backgroundColor: '#2563eb', borderRadius: 3 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: false }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 9 } }, beginAtZero: true } } }
+  });
+}
+
+// ── Block charts ──
+function updateBlockStats() {
+  const last = allBlocks.filter(d => !d._partial).pop() || allBlocks[allBlocks.length - 1];
+  document.getElementById('sb-total').textContent = fN(last.total_active);
+  document.getElementById('sb-total-sub').textContent = shortM(last.month) + (last._partial ? ' *' : '');
+  document.getElementById('sb-core').textContent = fN(last.core_active);
+  document.getElementById('sb-proj').textContent = fN(last.proj_active);
+  document.getElementById('sb-churn').textContent = fN(last.churned);
+}
+
+function renderBlockCharts() {
+  const data = allBlocks;
+  const labels = xLabels(data);
+  const f = blockFilter;
+
+  // Cumulative
+  if (charts.blocksCum) charts.blocksCum.destroy();
+  const cumDS = [];
+  if (f !== 'project') cumDS.push({ label: 'Core', data: data.map(d => d.core_active), backgroundColor: '#1a7a4a', stack: 'a', borderRadius: f === 'core' ? 3 : 0, borderSkipped: false });
+  if (f !== 'core') cumDS.push({ label: 'Project', data: data.map(d => d.proj_active), backgroundColor: '#5db88a', stack: 'a', borderRadius: 3, borderSkipped: false });
+
+  charts.blocksCum = new Chart(document.getElementById('chart-blocks-cum'), {
+    type: 'bar',
+    data: { labels, datasets: cumDS },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, datalabels: false },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+        y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true }
+      }
+    }
+  });
+
+  const legCum = document.getElementById('legend-blocks-cum');
+  legCum.innerHTML = '';
+  if (f !== 'project') legCum.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#1a7a4a"></div> Core</div>';
+  if (f !== 'core') legCum.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#5db88a"></div> Project / Grant</div>';
+
+  // Flow
+  if (charts.blocksFlow) charts.blocksFlow.destroy();
+  const flowDS = [];
+  if (f !== 'project') flowDS.push({ label: 'New Core', data: data.map(d => d.new_core), backgroundColor: '#1a7a4a', stack: 'n', borderRadius: 3 });
+  if (f !== 'core') flowDS.push({ label: 'New Project', data: data.map(d => d.new_proj), backgroundColor: '#5db88a', stack: 'n', borderRadius: 3 });
+
+  const churnData = data.map(d => {
+    if (f === 'all') return -d.churned;
+    const ratio = f === 'core' ? d.core_active / (d.total_active || 1) : d.proj_active / (d.total_active || 1);
+    return -Math.round(d.churned * ratio);
+  });
+
+  flowDS.push({ label: 'Churned', data: churnData, backgroundColor: '#d0392b', stack: 'ch', borderRadius: 3 });
+  flowDS.push({
+    label: 'Net', data: data.map((d, i) => {
+      const nc = f === 'project' ? 0 : d.new_core;
+      const np = f === 'core' ? 0 : d.new_proj;
+      return nc + np + churnData[i];
+    }),
+    type: 'line', borderColor: '#1a1a18', backgroundColor: 'transparent', borderWidth: 2,
+    pointRadius: 2, pointBackgroundColor: '#1a1a18', tension: 0.3, order: 0
+  });
+
+  charts.blocksFlow = new Chart(document.getElementById('chart-blocks-flow'), {
+    type: 'bar',
+    data: { labels, datasets: flowDS },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, datalabels: false },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+        y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+
+  const legFlow = document.getElementById('legend-blocks-flow');
+  legFlow.innerHTML = '';
+  if (f !== 'project') legFlow.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#1a7a4a"></div> New Core</div>';
+  if (f !== 'core') legFlow.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#5db88a"></div> New Project</div>';
+  legFlow.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#d0392b"></div> Churned</div>';
+  legFlow.innerHTML += '<div class="legend-item"><div class="legend-line" style="background:#1a1a18"></div> Net</div>';
+}
+
+// ── Data table ──
+function renderTable() {
+  const merged = allCleans.map(d => {
+    const b = allBlocks.find(x => x.month === d.month);
+    return { ...d, ...b ? { core_active: b.core_active, proj_active: b.proj_active, total_active: b.total_active, churned: b.churned, net: b.net, b_partial: b._partial } : {} };
+  }).reverse();
+
+  const totals = {
+    core_cleans: sumF(allCleans, 'core_cleans'), project_cleans: sumF(allCleans, 'project_cleans'),
+    grant_cleans: sumF(allCleans, 'grant_cleans'), total_cleans: sumF(allCleans, 'total_cleans'),
+    revenue: sumF(allCleans, 'revenue'), cogs: sumF(allCleans, 'cogs'),
+    gross_margin: sumF(allCleans, 'gross_margin'), bags: sumF(allCleans, 'bags')
+  };
+
+  const cols = ['Month','Core Cl','Proj Cl','Grant Cl','Total','Revenue','COGS','Margin','GM%','Bags','Core Blk','Proj Blk','Churned','Net'];
+  let html = '<table class="data-table"><thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+
+  for (const d of merged) {
+    const partial = d._partial || d.b_partial;
+    html += `<tr class="${partial ? 'partial' : ''}">`;
+    html += `<td>${shortM(d.month)}${partial ? ' *' : ''}</td>`;
+    html += `<td>${fN(d.core_cleans)}</td><td>${fN(d.project_cleans)}</td><td>${fN(d.grant_cleans)}</td>`;
+    html += `<td style="font-weight:600">${fN(d.total_cleans)}</td>`;
+    html += `<td>$${fN(d.revenue)}</td><td>$${fN(d.cogs)}</td>`;
+    html += `<td style="color:#1a7a4a">$${fN(d.gross_margin)}</td><td>${d.gm_pct}%</td>`;
+    html += `<td style="color:${d.bags ? '#b8960b' : '#ccc'}">${d.bags ? Math.round(d.bags) : '—'}</td>`;
+    html += `<td style="color:#1a7a4a">${d.core_active != null ? d.core_active : '—'}</td>`;
+    html += `<td style="color:#5db88a">${d.proj_active != null ? d.proj_active : '—'}</td>`;
+    html += `<td style="color:#b03a2e">${d.churned != null ? d.churned : '—'}</td>`;
+    html += `<td style="font-weight:500">${d.net != null ? d.net : '—'}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody><tfoot><tr>';
+  html += `<td>TOTAL</td><td>${fN(totals.core_cleans)}</td><td>${fN(totals.project_cleans)}</td><td>${fN(totals.grant_cleans)}</td>`;
+  html += `<td>${fN(totals.total_cleans)}</td><td>$${fN(totals.revenue)}</td><td>$${fN(totals.cogs)}</td>`;
+  html += `<td style="color:#1a7a4a">$${fN(totals.gross_margin)}</td><td>${Math.round((totals.revenue - totals.cogs) / totals.revenue * 100)}%</td>`;
+  html += `<td style="color:#b8960b">${Math.round(totals.bags)}</td><td colspan="4"></td>`;
+  html += '</tr></tfoot></table>';
+
+  document.getElementById('table-wrap').innerHTML = html;
+}
+
+// ── CSV export ──
+function exportCSV() {
+  const h = ['Month','Core Cleans','Proj Cleans','Grant Cleans','Total Cleans','Revenue','COGS','Gross Margin','GM%','Bags','Core Blocks','Proj Blocks','Total Blocks','Churned','Net'];
+  const rows = allCleans.map(d => {
+    const b = allBlocks.find(x => x.month === d.month);
+    return [d.month, d.core_cleans, d.project_cleans, d.grant_cleans, d.total_cleans, d.revenue, d.cogs, d.gross_margin, d.gm_pct + '%', Math.round(d.bags), b?.core_active || '', b?.proj_active || '', b?.total_active || '', b?.churned || '', b?.net ?? ''];
+  });
+  const csv = [h, ...rows].map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'glitter_ops_dashboard.csv';
+  a.click();
+}
+
+// ── Init ──
+async function init() {
+  try {
+    // Render historical data immediately
+    renderCleanCharts();
+    renderBlockCharts();
+    updateBlockStats();
+
+    // Fetch live current-month data in background
+    await Promise.all([fetchCurrentMonthCleans(), fetchBlockData()]);
+
+    // Re-render with live data included
+    renderCleanCharts();
+
+    document.getElementById('header-sub').textContent =
+      `Single source of truth · Updated ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${sumF(allCleans, 'total_cleans').toLocaleString()} cleanings`;
+    document.getElementById('footer-ts').textContent =
+      `Historical data through ${shortM(HIST_CLEANS[HIST_CLEANS.length - 1].month)} · Current month fetched live from Airtable`;
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById('error-msg').style.display = 'block';
+    document.getElementById('error-msg').textContent = `Warning: live data fetch failed (${err.message}). Showing historical data only.`;
+    document.getElementById('header-sub').textContent = 'Single source of truth · Showing cached historical data';
+  }
+}
+
+init();
+</script>
+</body>
+</html>

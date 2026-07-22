@@ -1,0 +1,8 @@
+[build]
+  # No build step — static files + serverless functions
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  # Node 20 for the proxy function
+  node_bundler = "esbuild"
