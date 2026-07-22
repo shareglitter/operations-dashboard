@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Glitter Operations Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <script src="data.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -85,8 +86,14 @@
   <div class="chart-card">
     <div class="chart-title">Cleans per Month</div>
     <div class="chart-sub">Stacked Core / Project / Grant — Revenue line on right axis</div>
+    <div class="toggle-row" id="toggle-cleans">
+      <button class="toggle-btn active" onclick="setCleanFilter('all')">All</button>
+      <button class="toggle-btn" onclick="setCleanFilter('core')">Core only</button>
+      <button class="toggle-btn" onclick="setCleanFilter('project')">Project only</button>
+      <button class="toggle-btn" onclick="setCleanFilter('grant')">Grant only</button>
+    </div>
     <div class="canvas-wrap"><canvas id="chart-cleans"></canvas></div>
-    <div class="legend">
+    <div class="legend" id="legend-cleans">
       <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div> Core</div>
       <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div> Project</div>
       <div class="legend-item"><div class="legend-dot" style="background:#14b8a6"></div> Grant</div>
@@ -162,7 +169,9 @@ const BAG_MAP = { rare:0.25, light:0.5, medium:0.75, heavy:1.25, severe:2.0 };
 let allCleans = [...HIST_CLEANS];
 let allBlocks = [...HIST_BLOCKS];
 let blockFilter = 'all';
+let cleanFilter = 'all';
 let charts = {};
+Chart.register(ChartDataLabels);
 
 // ── Helpers ──
 const shortM = m => { const ms = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const [y,mo] = m.split('-'); return `${ms[+mo-1]} '${y.slice(2)}`; };
@@ -324,10 +333,19 @@ function setBlockFilter(f) {
   renderBlockCharts();
 }
 
+function setCleanFilter(f) {
+  cleanFilter = f;
+  document.querySelectorAll('#toggle-cleans .toggle-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['all', 'core', 'project', 'grant'][i] === f);
+  });
+  renderCleanCharts();
+}
+
 // ── Cleaning charts ──
 function renderCleanCharts() {
   const data = allCleans;
   const labels = xLabels(data);
+  const f = cleanFilter;
   const last = data.find(d => !d._partial) ? data.filter(d => !d._partial).pop() : data[data.length - 2];
 
   // Stats
@@ -343,22 +361,43 @@ function renderCleanCharts() {
   document.getElementById('sc-rev').textContent = fD(totalRev);
   document.getElementById('sc-rev-sub').textContent = `${Math.round((totalRev - totalCogs) / totalRev * 100)}% gross margin`;
 
-  // Cleans stacked bar + revenue line
+  // Build datasets based on filter
+  const barDS = [];
+  if (f === 'all' || f === 'core') barDS.push({ label: 'Core', data: data.map(d => d.core_cleans), backgroundColor: '#2563eb', stack: 'c' });
+  if (f === 'all' || f === 'project') barDS.push({ label: 'Project', data: data.map(d => d.project_cleans), backgroundColor: '#8b5cf6', stack: 'c' });
+  if (f === 'all' || f === 'grant') barDS.push({ label: 'Grant', data: data.map(d => d.grant_cleans), backgroundColor: '#14b8a6', stack: 'c', borderRadius: { topLeft: 3, topRight: 3 } });
+  // Revenue line
+  barDS.push({ label: 'Revenue ($K)', data: data.map(d => d.revenue / 1000), type: 'line', borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, yAxisID: 'y1', tension: 0.3, order: 0, datalabels: { display: false } });
+
+  // Totals for datalabels on top of stack
+  const totalsArr = data.map(d => {
+    if (f === 'core') return d.core_cleans;
+    if (f === 'project') return d.project_cleans;
+    if (f === 'grant') return d.grant_cleans;
+    return d.total_cleans;
+  });
+
   if (charts.cleans) charts.cleans.destroy();
   charts.cleans = new Chart(document.getElementById('chart-cleans'), {
     type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Core', data: data.map(d => d.core_cleans), backgroundColor: '#2563eb', stack: 'c' },
-        { label: 'Project', data: data.map(d => d.project_cleans), backgroundColor: '#8b5cf6', stack: 'c' },
-        { label: 'Grant', data: data.map(d => d.grant_cleans), backgroundColor: '#14b8a6', stack: 'c', borderRadius: { topLeft: 3, topRight: 3 } },
-        { label: 'Revenue ($K)', data: data.map(d => d.revenue / 1000), type: 'line', borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, yAxisID: 'y1', tension: 0.3, order: 0 }
-      ]
-    },
+    data: { labels, datasets: barDS },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, datalabels: false },
+      layout: { padding: { top: 20 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          anchor: 'end', align: 'end', offset: 2,
+          font: { size: 9, weight: '500' }, color: '#6b6b66',
+          formatter: (value, ctx) => {
+            // Only show label on the topmost bar dataset (not the line)
+            const barCount = barDS.filter(ds => ds.type !== 'line').length;
+            if (ctx.datasetIndex !== barCount - 1) return '';
+            const total = totalsArr[ctx.dataIndex];
+            return total > 0 ? total.toLocaleString() : '';
+          }
+        }
+      },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
         y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 }, callback: v => v >= 1000 ? `${v/1000}K` : v }, beginAtZero: true },
@@ -367,7 +406,15 @@ function renderCleanCharts() {
     }
   });
 
-  // Bags chart
+  // Update legend
+  const legC = document.getElementById('legend-cleans');
+  legC.innerHTML = '';
+  if (f === 'all' || f === 'core') legC.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div> Core</div>';
+  if (f === 'all' || f === 'project') legC.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div> Project</div>';
+  if (f === 'all' || f === 'grant') legC.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#14b8a6"></div> Grant</div>';
+  legC.innerHTML += '<div class="legend-item"><div class="legend-line" style="background:#f97316"></div> Revenue</div>';
+
+  // Bags chart with datalabels
   const bagsData = data.filter(d => d.bags > 0);
   if (bagsData.length > 0) {
     document.getElementById('bags-card').style.display = 'block';
@@ -378,7 +425,19 @@ function renderCleanCharts() {
         labels: bagsData.map(d => shortM(d.month)),
         datasets: [{ label: 'Bags', data: bagsData.map(d => Math.round(d.bags)), borderColor: '#b8960b', backgroundColor: 'rgba(184,150,11,0.1)', fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#b8960b' }]
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: false }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true } } }
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end', align: 'end', offset: 4,
+            font: { size: 9, weight: '500' }, color: '#6b6b66',
+            formatter: v => v > 0 ? v.toLocaleString() : ''
+          }
+        },
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true } }
+      }
     });
   }
 
@@ -431,7 +490,21 @@ function renderBlockCharts() {
     data: { labels, datasets: cumDS },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, datalabels: false },
+      layout: { padding: { top: 24 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          anchor: 'end', align: 'end', offset: 2,
+          font: { size: 10, weight: '500' }, color: '#6b6b66',
+          formatter: (value, ctx) => {
+            const isTop = ctx.datasetIndex === cumDS.length - 1;
+            if (!isTop) return '';
+            const d = data[ctx.dataIndex];
+            const total = f === 'core' ? d.core_active : f === 'project' ? d.proj_active : d.total_active;
+            return total > 0 ? total.toLocaleString() : '';
+          }
+        }
+      },
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
         y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true }
