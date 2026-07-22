@@ -29,6 +29,6 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data.js
+          git add data.js health_data.js
           # Only commit if data.js actually changed
           git diff --cached --quiet || (git commit -m "Monthly data refresh $(date +%Y-%m)" && git push)

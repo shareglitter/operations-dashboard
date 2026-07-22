@@ -179,8 +179,75 @@ const HIST_BLOCKS = ${JSON.stringify(blocksFinal)};
 
   const outPath = path.join(__dirname, 'data.js');
   fs.writeFileSync(outPath, output);
-  console.log(`\n✅ Written to ${outPath}`);
-  console.log('Deploy to Netlify: git add data.js && git commit -m "monthly refresh" && git push');
+  console.log(`\n✅ data.js written`);
+
+  // Build health data (block tier snapshot)
+  await buildHealthData(now);
+
+  console.log('\nDeploy: git add data.js health_data.js && git commit -m "monthly refresh" && git push');
+}
+
+async function buildHealthData(now) {
+  console.log('\nFetching block tier data...');
+  const records = await fetchAll(BLOCKS_TABLE,
+    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type']);
+  console.log(`  ${records.length} block records`);
+
+  const subTiersSet = new Set();
+  const cleanTiersSet = new Set();
+  const blockTiersSet = new Set();
+
+  const core = { tiers: {}, heatmap: {}, total: 0 };
+  const proj = { tiers: {}, heatmap: {}, total: 0 };
+
+  for (const r of records) {
+    const f = r.fields;
+    const st = f['Subscriber Tier'] || '';
+    const ct = f['Cleaning Level Tier'] || '';
+    const bt = f['Block Tier (calc)'] || '';
+    const fund = f['Funding Type'] || '';
+
+    if (!bt || bt === '#ERROR!') continue;
+
+    subTiersSet.add(st);
+    cleanTiersSet.add(ct);
+    blockTiersSet.add(bt);
+
+    const isCore = ['Resident', 'Community', 'Commercial / Property Management'].includes(fund);
+    const isProj = fund === 'Project';
+    const bucket = isCore ? core : isProj ? proj : null;
+    if (!bucket) continue;
+
+    bucket.tiers[bt] = (bucket.tiers[bt] || 0) + 1;
+    const key = `${st}|${ct}`;
+    bucket.heatmap[key] = (bucket.heatmap[key] || 0) + 1;
+    bucket.total++;
+  }
+
+  const tierLabels = [...blockTiersSet].sort();
+  const subTiers = [...subTiersSet].sort();
+  const cleanTiers = [...cleanTiersSet].sort();
+
+  console.log(`  Core: ${core.total} blocks, Project: ${proj.total} blocks`);
+  console.log(`  Tiers: ${tierLabels.join(', ')}`);
+
+  const healthOutput = `// Glitter Operations Dashboard — Block Health Snapshot
+// Auto-generated ${now.toISOString().slice(0, 10)}
+// Core blocks: ${core.total} | Project blocks: ${proj.total}
+
+const TIER_LABELS = ${JSON.stringify(tierLabels)};
+const SUB_TIERS = ${JSON.stringify(subTiers)};
+const CLEAN_TIERS = ${JSON.stringify(cleanTiers)};
+
+const HEALTH_DATA = {
+  core: ${JSON.stringify(core)},
+  proj: ${JSON.stringify(proj)}
+};
+`;
+
+  const healthPath = path.join(__dirname, 'health_data.js');
+  fs.writeFileSync(healthPath, healthOutput);
+  console.log(`✅ health_data.js written`);
 }
 
 main().catch(err => {
