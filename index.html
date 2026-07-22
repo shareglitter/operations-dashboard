@@ -445,7 +445,7 @@ function renderCleanCharts() {
             font: { size: 9, weight: '500' }, color: '#6b6b66',
             formatter: (value, ctx) => {
               // Only show total on the first (top) dataset
-              if (ctx.datasetIndex !== 0) return '';
+              if (ctx.datasetIndex !== 1) return '';
               const d = bagsData[ctx.dataIndex];
               const total = Math.round((d.trash_bags || 0) + (d.debris_bags || 0));
               return total > 0 ? total.toLocaleString() : '';
