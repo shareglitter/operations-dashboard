@@ -103,8 +103,9 @@
 
   <div class="chart-card" id="bags-card" style="display:none">
     <div class="chart-title">Bags of Trash Diverted per Month</div>
-    <div class="chart-sub">Rare=0.25, Light=0.5, Med=0.75, Heavy=1.25, Severe=2.0 per clean · Scoring began Jun '25</div>
+    <div class="chart-sub">Trash + Debris stacked · Rare=0.25, Light=0.5, Med=0.75, Heavy=1.25, Severe=2.0 · Scoring began Jun '25</div>
     <div class="canvas-wrap short"><canvas id="chart-bags"></canvas></div>
+    <div class="legend" id="bags-legend"></div>
   </div>
 
   <div class="half-row">
@@ -213,7 +214,7 @@ async function fetchCurrentMonthCleans() {
     const records = await fetchAT(CLEANS_TABLE,
       ['Date and Time', 'Projects', 'Multiplier', 'Payout', 'Trash', 'Debris'], filter);
 
-    let core = 0, proj = 0, grant = 0, rev = 0, cogs = 0, bags = 0;
+    let core = 0, proj = 0, grant = 0, rev = 0, cogs = 0, bags = 0, trash_bags = 0, debris_bags = 0;
     for (const r of records) {
       const f = r.fields;
       if (!f['Date and Time']) continue;
@@ -230,7 +231,11 @@ async function fetchCurrentMonthCleans() {
 
       const trashName = (f['Trash'] || '').toLowerCase().split('.')[0].trim();
       const debrisName = (f['Debris'] || '').toLowerCase().split('.')[0].trim();
-      bags += (BAG_MAP[trashName] || 0) + (BAG_MAP[debrisName] || 0);
+      const tb = BAG_MAP[trashName] || 0;
+      const db = BAG_MAP[debrisName] || 0;
+      trash_bags += tb;
+      debris_bags += db;
+      bags += tb + db;
     }
 
     const total = core + proj + grant;
@@ -239,7 +244,9 @@ async function fetchCurrentMonthCleans() {
       month: monthStr, core_cleans: core, project_cleans: proj, grant_cleans: grant,
       total_cleans: total, revenue: Math.round(rev), cogs: Math.round(cogs),
       gross_margin: Math.round(gm), gm_pct: total ? Math.round(gm / rev * 1000) / 10 : 0,
-      bags: Math.round(bags * 100) / 100, _partial: true
+      bags: Math.round(bags * 100) / 100,
+      trash_bags: Math.round(trash_bags * 100) / 100,
+      debris_bags: Math.round(debris_bags * 100) / 100, _partial: true
     });
   } catch (e) {
     console.warn('Could not fetch current month cleans:', e);
@@ -423,22 +430,41 @@ function renderCleanCharts() {
       type: 'line',
       data: {
         labels: bagsData.map(d => shortM(d.month)),
-        datasets: [{ label: 'Bags', data: bagsData.map(d => Math.round(d.bags)), borderColor: '#b8960b', backgroundColor: 'rgba(184,150,11,0.1)', fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#b8960b' }]
+        datasets: [
+          { label: 'Trash', data: bagsData.map(d => Math.round(d.trash_bags || 0)), borderColor: '#b8960b', backgroundColor: 'rgba(184,150,11,0.25)', fill: true, tension: 0.3, pointRadius: 2, pointBackgroundColor: '#b8960b', borderWidth: 1.5, order: 1 },
+          { label: 'Debris', data: bagsData.map(d => Math.round(d.debris_bags || 0)), borderColor: '#78716c', backgroundColor: 'rgba(120,113,108,0.2)', fill: true, tension: 0.3, pointRadius: 2, pointBackgroundColor: '#78716c', borderWidth: 1.5, order: 2 }
+        ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        layout: { padding: { top: 20 } },
+        layout: { padding: { top: 24 } },
         plugins: {
           legend: { display: false },
           datalabels: {
             anchor: 'end', align: 'end', offset: 4,
             font: { size: 9, weight: '500' }, color: '#6b6b66',
-            formatter: v => v > 0 ? v.toLocaleString() : ''
+            formatter: (value, ctx) => {
+              // Only show total on the first (top) dataset
+              if (ctx.datasetIndex !== 0) return '';
+              const d = bagsData[ctx.dataIndex];
+              const total = Math.round((d.trash_bags || 0) + (d.debris_bags || 0));
+              return total > 0 ? total.toLocaleString() : '';
+            }
           }
         },
-        scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true } }
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true }
+        }
       }
     });
+  }
+
+  // Update bags legend
+  const bagLeg = document.getElementById('bags-legend');
+  if (bagLeg) {
+    bagLeg.innerHTML = '<div class="legend-item"><div class="legend-dot" style="background:#b8960b"></div> Trash</div>'
+      + '<div class="legend-item"><div class="legend-dot" style="background:#78716c"></div> Debris</div>';
   }
 
   // Margin chart

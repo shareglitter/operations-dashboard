@@ -63,7 +63,7 @@ async function buildCleaningSeries() {
     const payout = f['Payout'] || 25;
     const proj = f['Projects'] || null;
 
-    if (!monthly[month]) monthly[month] = { core: 0, project: 0, grant: 0, rev: 0, cogs: 0, bags: 0 };
+    if (!monthly[month]) monthly[month] = { core: 0, project: 0, grant: 0, rev: 0, cogs: 0, trash_bags: 0, debris_bags: 0 };
     const m = monthly[month];
 
     if (proj === 'SSNE' || proj === 'SSW') m.grant++;
@@ -72,18 +72,22 @@ async function buildCleaningSeries() {
 
     m.rev += 50 * mult;
     m.cogs += payout;
-    m.bags += normScore(f['Trash']) + normScore(f['Debris']);
+    m.trash_bags += normScore(f['Trash']);
+    m.debris_bags += normScore(f['Debris']);
   }
 
   return Object.keys(monthly).sort().map(month => {
     const m = monthly[month];
     const total = m.core + m.project + m.grant;
     const gm = m.rev - m.cogs;
+    const bags = m.trash_bags + m.debris_bags;
     return {
       month, core_cleans: m.core, project_cleans: m.project, grant_cleans: m.grant,
       total_cleans: total, revenue: Math.round(m.rev), cogs: Math.round(m.cogs),
       gross_margin: Math.round(gm), gm_pct: total ? Math.round(gm / m.rev * 1000) / 10 : 0,
-      bags: Math.round(m.bags * 100) / 100
+      bags: Math.round(bags * 100) / 100,
+      trash_bags: Math.round(m.trash_bags * 100) / 100,
+      debris_bags: Math.round(m.debris_bags * 100) / 100
     };
   });
 }
