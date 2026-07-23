@@ -1443,7 +1443,8 @@ async function renderFinancialsTab() {
     const fcTotals = F.months.map((_, i) =>
       bucketKeys.reduce((s, k) => s + (F.fixedCosts[k][i] || 0), 0));
 
-    new Chart(fcCtx, {
+    if (charts.fcBreakdown) charts.fcBreakdown.destroy();
+    charts.fcBreakdown = new Chart(fcCtx, {
       type: 'bar',
       data: {
         labels: actualMonths,
@@ -1534,7 +1535,8 @@ async function renderFinancialsTab() {
     const grantEndIdx = forwardRows.findIndex(r => r.month === '2026-10');
     const ssnwStartIdx = forwardRows.findIndex(r => r.month === '2027-04');
     
-    new Chart(cashCtx, {
+    if (charts.cash) charts.cash.destroy();
+    charts.cash = new Chart(cashCtx, {
       type: 'bar',
       data: {
         labels: cashData.map(d => d.month),
@@ -1575,15 +1577,17 @@ async function renderFinancialsTab() {
           datalabels: {
             // Cash line sits well above the bars, so lift its labels clear of the
             // dots; op-income bars label against whichever end points away from zero.
+            // NB: datalabels' scriptable context has no `parsed` — read the raw
+            // datum off the dataset instead.
             anchor: ctx => ctx.dataset.type === 'line' ? 'center' : 'end',
             align: ctx => ctx.dataset.type === 'line'
               ? 'top'
-              : (ctx.parsed.y >= 0 ? 'end' : 'start'),
+              : ((ctx.dataset.data[ctx.dataIndex] || 0) >= 0 ? 'end' : 'start'),
             offset: ctx => ctx.dataset.type === 'line' ? 10 : 2,
             font: { size: 9, weight: '500' },
             color: ctx => ctx.dataset.type === 'line'
               ? '#2563eb'
-              : (ctx.parsed.y >= 0 ? '#1a7a4a' : '#b03a2e'),
+              : ((ctx.dataset.data[ctx.dataIndex] || 0) >= 0 ? '#1a7a4a' : '#b03a2e'),
             formatter: v => fmt$(v)
           },
           annotation: {
