@@ -1141,74 +1141,106 @@ function buildForwardMonths(startMonth, count) {
   return months;
 }
  
-// Fetch MRR from Airtable Subscribers table
-// Field names from AT interface:
-//   Share — dollar amount per billing cycle
-//   Funding Type — "Project" = grant/project blocks; "Resident", "Commercial / Property Manager", "Community" = Core
-//   Contribution Status — "Active" = paying MRR (Invoice Sent / Missing Payment recover ~0%)
-async function fetchMRRSnapshot() {
-  const SUBSCRIBERS_TABLE = 'Subscribers';
-  try {
-    const subscriberFields = ['Share', 'Contribution Status', 'Funding Type'];
-    const CORE_TYPES = ['Resident', 'Commercial / Property Manager', 'Community'];
+// Fetch MRR from the Airtable "Active Subscriptions" table (one row per
+// subscriber+block pair). NOT the "Subscribers" table — that one is per-person
+// and carries no Share/MRR fields.
+//
+//   Share                     — dollar amount per billing cycle
+//   MRR (Share)               — Share normalized to a month; AT already applies
+//                               the 13-cycles/12-months factor, so do NOT re-apply it
+//   MRR (Donation)            — recurring Impact Fund donation on top of Share
+//   MRR                       — MRR (Share) + MRR (Donation)
+//   Funding Type (from Block) — LOOKUP, so the value arrives as an array
+//                               "Project" = grant/project blocks; "Resident",
+//                               "Commercial / Property Management", "Community" = Core
+//   Contribution Status       — "Active" = paying. The other six statuses
+//                               (Negative/Positive/Payment Churn, Pledged Not Yet
+//                               Paying, Invoice Sent, Missing Payment) recover ~0%.
+const SUBSCRIPTIONS_TABLE = 'Active Subscriptions';
+const CORE_FUNDING_TYPES = ['Resident', 'Commercial / Property Management', 'Community'];
 
+async function fetchMRRSnapshot() {
+  const subscriptionFields = [
+    'Share', 'Contribution Status', 'Funding Type (from Block)',
+    'MRR', 'MRR (Share)', 'MRR (Donation)'
+  ];
+
+  try {
     let data;
     try {
       data = await atProxy({
-        table: SUBSCRIBERS_TABLE,
-        fields: subscriberFields,
+        table: SUBSCRIPTIONS_TABLE,
+        fields: subscriptionFields,
         filter: "{Contribution Status}='Active'"
       });
     } catch (firstErr) {
       // Airtable 422 = UNKNOWN_FIELD_NAME / INVALID_FILTER_BY_FORMULA, i.e. our
       // field names don't match the table. Re-request with no fields[] and no
       // filter so we can print the field names that actually exist.
-      console.warn('Subscribers request rejected, probing table schema:', firstErr.message);
+      console.warn('Subscriptions request rejected, probing table schema:', firstErr.message);
       try {
-        const probe = await atProxy({ table: SUBSCRIBERS_TABLE, fields: [], maxRecords: 3 });
+        const probe = await atProxy({ table: SUBSCRIPTIONS_TABLE, fields: [], maxRecords: 3 });
         const seen = new Set();
         (probe.records || []).forEach(r => Object.keys(r.fields).forEach(k => seen.add(k)));
         console.warn(
-          `Table "${SUBSCRIBERS_TABLE}" exists and is readable. Actual field names:`,
+          `Table "${SUBSCRIPTIONS_TABLE}" exists and is readable. Actual field names:`,
           seen.size ? [...seen] : '(no records returned)'
         );
-        console.warn('Expected by fetchMRRSnapshot:', subscriberFields);
+        console.warn('Expected by fetchMRRSnapshot:', subscriptionFields);
       } catch (probeErr) {
-        console.warn(`Schema probe also failed — table "${SUBSCRIBERS_TABLE}" may not exist in this base, or the token lacks access:`, probeErr.message);
+        console.warn(`Schema probe also failed — table "${SUBSCRIPTIONS_TABLE}" may not exist in this base, or the token lacks access:`, probeErr.message);
       }
       throw firstErr;
     }
 
     const records = data.records || [];
+    // Lookup fields come back as arrays; plain fields don't. Normalize both.
+    const first = v => Array.isArray(v) ? v.find(x => x != null) : v;
+    const num = v => parseFloat(first(v)) || 0;
 
-    let coreShare = 0, coreSubs = 0;
-    let projectShare = 0, projectSubs = 0;
- 
+    const b = () => ({ subs: 0, share: 0, mrr: 0, mrrShare: 0, mrrDonation: 0 });
+    const core = b(), project = b(), other = b();
+    const unknownTypes = new Set();
+
     records.forEach(r => {
       const f = r.fields;
-      const share = parseFloat(f.Share) || 0;
-      const fundingType = (f['Funding Type'] || '').trim();
-      const isCore = CORE_TYPES.includes(fundingType);
- 
-      if (isCore) {
-        coreShare += share;
-        coreSubs++;
-      } else {
-        // "Project" funding type = project/grant blocks
-        projectShare += share;
-        projectSubs++;
-      }
+      const fundingType = String(first(f['Funding Type (from Block)']) || '').trim();
+
+      let bucket;
+      if (CORE_FUNDING_TYPES.includes(fundingType)) bucket = core;
+      else if (fundingType === 'Project') bucket = project;
+      else { bucket = other; unknownTypes.add(fundingType || '(empty)'); }
+
+      bucket.subs++;
+      bucket.share       += num(f['Share']);
+      bucket.mrr         += num(f['MRR']);
+      bucket.mrrShare    += num(f['MRR (Share)']);
+      bucket.mrrDonation += num(f['MRR (Donation)']);
     });
- 
+
+    if (other.subs) {
+      // Don't silently fold these into Project — an unmapped funding type is a
+      // data problem worth seeing, not worth quietly absorbing into a total.
+      console.warn(
+        `${other.subs} active subscription(s) have an unrecognized Funding Type ` +
+        `(${[...unknownTypes].join(', ')}) totalling ${fmtFull$(other.mrr)} MRR — ` +
+        `counted in the total but in neither Core nor Project.`
+      );
+    }
+
     return {
-      coreSubs, coreShare,
-      projectSubs, projectShare,
-      totalSubs: coreSubs + projectSubs,
-      totalShare: coreShare + projectShare,
-      // MRR = Share per cycle × 13 cycles / 12 months
-      totalMRR: (coreShare + projectShare) * 13 / 12,
-      coreMRR: coreShare * 13 / 12,
-      projectMRR: projectShare * 13 / 12,
+      coreSubs: core.subs,       coreShare: core.share,
+      projectSubs: project.subs, projectShare: project.share,
+      otherSubs: other.subs,     otherShare: other.share,
+      totalSubs: core.subs + project.subs + other.subs,
+      totalShare: core.share + project.share + other.share,
+      // Use AT's MRR (Share) directly — it is already Share x 13/12.
+      // Donations are tracked separately as Impact Fund (QB 4020), so the
+      // subscription-revenue comparison uses the Share component only.
+      coreMRR: core.mrrShare,
+      projectMRR: project.mrrShare,
+      totalMRR: core.mrrShare + project.mrrShare + other.mrrShare,
+      donationMRR: core.mrrDonation + project.mrrDonation + other.mrrDonation,
     };
   } catch (err) {
     console.warn('MRR fetch failed, using estimates:', err);
