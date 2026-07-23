@@ -316,7 +316,7 @@ async function fetchCurrentMonthCleans() {
   try {
     const filter = `IS_AFTER({Date and Time}, '${firstOfMonth}')`;
     const records = await fetchAT(CLEANS_TABLE,
-      ['Date and Time', 'Projects', 'Multiplier', 'Payout', 'Trash', 'Debris'], filter);
+      ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris'], filter);
 
     let core = 0, proj = 0, grant = 0, rev = 0, cogs = 0, bags = 0, trash_bags = 0, debris_bags = 0;
     for (const r of records) {
@@ -324,7 +324,7 @@ async function fetchCurrentMonthCleans() {
       if (!f['Date and Time']) continue;
       const mult = f['Multiplier'] || 1;
       const payout = f['Payout'] || 25;
-      const project = f['Projects'] || null;
+      const project = f['Project'] || null;
 
       if (project === 'SSNE' || project === 'SSW') grant++;
       else if (project) proj++;
