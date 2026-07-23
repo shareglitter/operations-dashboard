@@ -51,7 +51,7 @@ exports.handler = async (event) => {
 
     do {
       const baseId = body.base || DEFAULT_BASE;
-      const url = `https://api.airtable.com/v0/${DEFAULT_BASE}/${table}?${fieldParams}&pageSize=100${filterParam}${offset ? '&offset=' + offset : ''}`;
+      const url = `https://api.airtable.com/v0/${baseId}/${table}?${fieldParams}&pageSize=100${filterParam}${offset ? '&offset=' + offset : ''}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
       if (!res.ok) {
