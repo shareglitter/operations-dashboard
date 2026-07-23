@@ -7,7 +7,7 @@
  * Set AIRTABLE_TOKEN in Netlify dashboard: Site settings → Environment variables
  */
 
-const BASE_ID = 'appzuuUtAQVDg0YW1';
+const DEFAULT_BASE = 'appzuuUtAQVDg0YW1';
 
 exports.handler = async (event) => {
   // CORS headers for local dev
@@ -48,6 +48,7 @@ exports.handler = async (event) => {
     let records = [], offset = null;
 
     do {
+      const baseId = body.base || DEFAULT_BASE;
       const url = `https://api.airtable.com/v0/${BASE_ID}/${table}?${fieldParams}&pageSize=100${filterParam}${offset ? '&offset=' + offset : ''}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 

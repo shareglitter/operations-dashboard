@@ -69,9 +69,11 @@
 <div id="error-msg" class="error"></div>
 
 <div class="tab-row">
+  
   <button class="tab-btn active" onclick="switchTab('cleans')">Cleaning & Revenue</button>
   <button class="tab-btn" onclick="switchTab('blocks')">Block Growth</button>
   <button class="tab-btn" onclick="switchTab('health')">Block Health</button>
+  <button class="tab-btn" onclick="switchTab('metrics')">President's Metrics</button>
   <button class="tab-btn" onclick="switchTab('table')">Data Table</button>
   <button class="export-btn" onclick="exportCSV()">Export CSV</button>
 </div>
@@ -81,8 +83,7 @@
   <div class="stat-row" id="stats-cleans">
     <div class="stat"><div class="stat-label">Total Cleans</div><div class="stat-value" id="sc-total"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub" id="sc-total-sub">all time</div></div>
     <div class="stat"><div class="stat-label">Bags Diverted</div><div class="stat-value" style="color:#b8960b" id="sc-bags">—</div><div class="stat-sub">scored from Jun '25</div></div>
-    <div class="stat"><div class="stat-label">Last Full Month</div><div class="stat-value" style="color:#2563eb" id="sc-last">—</div><div class="stat-sub" id="sc-last-sub"></div></div>
-    <div class="stat"><div class="stat-label">All-Time Revenue</div><div class="stat-value" style="color:#1a7a4a" id="sc-rev">—</div><div class="stat-sub" id="sc-rev-sub"></div></div>
+    <div class="stat"><div class="stat-label">Cleans Last Full Month</div><div class="stat-value" style="color:#2563eb" id="sc-last">—</div><div class="stat-sub" id="sc-last-sub"></div></div>
   </div>
 
   <div class="chart-card">
@@ -217,6 +218,39 @@
       <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count</div>
       <div id="heatmap-proj"></div>
     </div>
+  </div>
+</div>
+
+<!-- ========== PRESIDENT'S METRICS TAB ========== -->
+<div id="tab-metrics" class="tab-content">
+  <div id="metrics-loading" class="loading" style="height:300px"><div class="spinner"></div> Loading metrics from OpsHub...</div>
+  <div id="metrics-content" style="display:none">
+ 
+    <div style="margin-bottom:20px">
+      <h2 style="font-size:16px;font-weight:600;margin:0">President's Scorecard</h2>
+      <p style="font-size:12px;color:#9b9b96;margin:4px 0 0">Monthly goals vs actuals · Data from OpsHub · Auto-filled metrics refresh monthly</p>
+    </div>
+ 
+    <!-- Metric cards -->
+    <div id="metric-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px"></div>
+ 
+    <!-- Monthly tracking table -->
+    <div class="chart-card">
+      <div class="chart-title">Monthly Tracking</div>
+      <div class="chart-sub">Goal vs Actual by month · Green = met or beat goal · Red = missed</div>
+      <div style="overflow-x:auto" id="metrics-table-wrap"></div>
+      <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">
+        Auto-filled metrics: Cleaning Health %, Funded Blocks, Block Growth %, Monthly Churn %. Manual: Cleaner Churn, Partnerships, Grants $, Backlog.
+      </div>
+    </div>
+ 
+    <!-- Initiatives summary -->
+    <div class="chart-card" style="margin-top:16px">
+      <div class="chart-title">Active Initiatives</div>
+      <div class="chart-sub">From OpsHub · Projects driving each metric</div>
+      <div id="initiatives-list"></div>
+    </div>
+ 
   </div>
 </div>
 
@@ -397,7 +431,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
   document.querySelectorAll('.tab-row .tab-btn').forEach((b, i) => {
-    b.classList.toggle('active', ['cleans', 'blocks', 'health', 'table'][i] === tab);
+    b.classList.toggle('active', ['cleans', 'blocks', 'health', 'metrics', 'table'][i] === tab);
   });
   if (tab === 'table') renderTable();
   if (tab === 'health') renderHealthTab();
@@ -814,8 +848,8 @@ function renderHeatmap(containerId, data) {
   const maxVal = Math.max(...Object.values(data.heatmap), 1);
 
   // Short labels for columns
-  const colLabels = ['Weekly', '3/4 Cycle', '2/4 Cycle', '1/4 Cycle', 'Not Funded'];
-  const rowLabels = ['10+ subs', '5-9 subs', '1-4 subs', '0 subs'];
+  const colLabels = ['Weekly (100%)', '3/4 Cycle (75%)', '2/4 Cycle (50%)', '1/4 Cycle (25%)', 'Not Funded (0%)'];
+  const rowLabels = ['SubTier1: 10+ subs', 'SubTier2: 5-9 subs', 'SubTier3: 1-4 subs', 'SubTier4: 0 subs'];
 
   let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
   // Header
@@ -858,6 +892,157 @@ function renderHeatmap(containerId, data) {
 
   container.innerHTML = html;
 }
+
+// ── President's Metrics Tab ──
+const OPSHUB_BASE = 'app87a9ZvrVJZiFuZ';
+const METRICS_TABLE = 'tblqg4SxBkQoliQrn';
+const INITIATIVES_TABLE = 'tblBvYsdfCuRKj4rF';
+ 
+const METRIC_DEFS = [
+  { key: 'health', label: 'Cleaning Health %', goalF: 'fldu2knH4W6DnmyRw', actualF: 'fldTbo6vWjFzFfYJF', fmt: v => v != null ? v + '%' : '—', higher: true, color: '#1a7a4a' },
+  { key: 'funded', label: 'Funded Blocks', goalF: 'fldDpCX55LDhCxgyq', actualF: 'fldBdE2k2VQPZ6jTH', fmt: v => v != null ? v.toLocaleString() : '—', higher: true, color: '#1a7a4a' },
+  { key: 'equivs', label: 'Cleaning Equivalents', goalF: null, actualF: 'fldlNXgZWFiOPcOSG', fmt: v => v != null ? v.toLocaleString() : '—', higher: true, color: '#2563eb' },
+  { key: 'growth', label: 'Block Growth %', goalF: 'fldOfVdoTrEEFB2El', actualF: 'fldOyQ9IKcR5rwuzg', fmt: v => v != null ? v + '%' : '—', higher: true, color: '#2563eb' },
+  { key: 'churn', label: 'Monthly Churn %', goalF: 'fldNSPC0dwcTp7egf', actualF: 'fld7zSKJMrgAzrCZS', fmt: v => v != null ? v + '%' : '—', higher: false, color: '#b03a2e' },
+  { key: 'cleaner', label: 'Cleaner Yearly Churn %', goalF: 'fldS1PgRyN5iMwCYa', actualF: 'fldUH4V19NeLKB9Ag', fmt: v => v != null ? v + '%' : '—', higher: false, color: '#d97706' },
+  { key: 'partners', label: 'Partnerships', goalF: 'fldcyPdAVHLVp0cZV', actualF: 'fldmm2N9eEjCdjf77', fmt: v => v != null ? v.toString() : '—', higher: true, color: '#8b5cf6' },
+  { key: 'grants', label: 'Grants $', goalF: 'fldUZPACTgSIlXO1S', actualF: 'fldaNhpAeU1NgkWbN', fmt: v => v != null ? '$' + v.toLocaleString() : '—', higher: true, color: '#8b5cf6' },
+  { key: 'backlog', label: 'Backlog Reduced %', goalF: 'fld5eLtDBOCtQ5HrF', actualF: 'fldYWLVYI8njYs4rg', fmt: v => v != null ? v + '%' : '—', higher: true, color: '#6b6b66' },
+];
+ 
+let metricsLoaded = false;
+ 
+async function fetchOpsHub(tableId, fields) {
+  const res = await fetch('/.netlify/functions/at-proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table: tableId, fields, base: OPSHUB_BASE })
+  });
+  if (!res.ok) throw new Error(`OpsHub proxy ${res.status}`);
+  const data = await res.json();
+  return data.records;
+}
+ 
+async function renderMetricsTab() {
+  if (metricsLoaded) return;
+ 
+  try {
+    // Fetch monthly metrics
+    const metricFields = ['Name', 'Cleaning Health % - Goal', 'Cleaning Health % - Actual',
+      'Funded Blocks - Goal', 'Funded Blocks - Actual', 'Cleaning Equivalents',
+      'Monthly Churn % - Goal', 'Monthly Churn % - Actual',
+      'Block Growth % - Goal', 'Block Growth % - Actual',
+      'Cleaner Churn % - Goal', 'Cleaner Churn % - Actual',
+      'Partnerships - Goal', 'Partnerships - Actual',
+      'Grants $ - Goal', 'Grants $ - Actual',
+      'Backlog Reduced % - Goal', 'Backlog Reduced % - Actual'];
+    const metricRecords = await fetchOpsHub(METRICS_TABLE, metricFields);
+ 
+    // Fetch initiatives
+    const initRecords = await fetchOpsHub(INITIATIVES_TABLE,
+      ['Name', 'KPI', 'KPI (Goal)', 'KPI (Current)', '# of Projects Active', '# of Projects Total']);
+ 
+    // Parse metrics into rows sorted by month
+    const rows = metricRecords.map(r => r.fields).sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
+ 
+    // Find latest row with any actual data for the cards
+    const latestWithActual = [...rows].reverse().find(r =>
+      r['Cleaning Health % - Actual'] != null || r['Funded Blocks - Actual'] != null);
+    const latestMonth = latestWithActual ? latestWithActual.Name : rows[rows.length - 1]?.Name;
+ 
+    // Render metric cards from latest actual
+    const cardsDiv = document.getElementById('metric-cards');
+    cardsDiv.innerHTML = METRIC_DEFS.map(md => {
+      const row = latestWithActual || {};
+      const goalKey = md.goalF ? Object.keys(row).find(k => k.toLowerCase().includes(md.label.split(' ')[0].toLowerCase()) && k.includes('Goal')) : null;
+      const actualKey = Object.keys(row).find(k => k.toLowerCase().includes(md.label.split(' ')[0].toLowerCase()) && (k.includes('Actual') || k.includes('Equivalents')));
+ 
+      const goal = goalKey ? row[goalKey] : null;
+      const actual = actualKey ? row[actualKey] : null;
+ 
+      let status = '';
+      let statusColor = '#9b9b96';
+      if (actual != null && goal != null) {
+        const met = md.higher ? actual >= goal : actual <= goal;
+        status = met ? '✓ On track' : '⚠ Needs attention';
+        statusColor = met ? '#1a7a4a' : '#b03a2e';
+      }
+ 
+      return `<div class="stat" style="text-align:left">
+        <div class="stat-label" style="margin-bottom:8px">${md.label}</div>
+        <div style="font-size:24px;font-weight:600;color:${md.color}">${md.fmt(actual)}</div>
+        ${goal != null ? `<div style="font-size:11px;color:#9b9b96;margin-top:4px">Goal: ${md.fmt(goal)}</div>` : ''}
+        ${status ? `<div style="font-size:11px;color:${statusColor};margin-top:2px;font-weight:500">${status}</div>` : ''}
+      </div>`;
+    }).join('');
+ 
+    // Render monthly tracking table
+    const tableDiv = document.getElementById('metrics-table-wrap');
+    const visibleMetrics = METRIC_DEFS.filter(m => m.goalF); // skip cleaning equivalents from table (it's goal-less)
+    let html = '<table class="data-table"><thead><tr><th>Month</th>';
+    visibleMetrics.forEach(m => { html += `<th colspan="2" style="text-align:center;border-bottom:2px solid ${m.color}40">${m.label}</th>`; });
+    html += `<th style="text-align:center">Clean Equiv</th></tr>`;
+    html += '<tr><th></th>';
+    visibleMetrics.forEach(() => { html += '<th style="text-align:center;font-size:9px;color:#9b9b96">Goal</th><th style="text-align:center;font-size:9px;color:#9b9b96">Actual</th>'; });
+    html += '<th style="text-align:center;font-size:9px;color:#9b9b96">Actual</th></tr></thead><tbody>';
+ 
+    rows.forEach(row => {
+      html += `<tr><td style="font-weight:500">${shortM(row.Name || '')}</td>`;
+      visibleMetrics.forEach(md => {
+        const goalKey = Object.keys(row).find(k => k.includes(md.label.split(' - ')[0]) && k.includes('Goal')) ||
+          Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z]/g,'').includes(md.key) && k.includes('Goal'));
+        const actualKey = Object.keys(row).find(k => k.includes(md.label.split(' - ')[0]) && k.includes('Actual')) ||
+          Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z]/g,'').includes(md.key) && k.includes('Actual'));
+ 
+        const goal = goalKey ? row[goalKey] : null;
+        const actual = actualKey ? row[actualKey] : null;
+ 
+        let cellColor = '';
+        if (actual != null && goal != null) {
+          const met = md.higher ? actual >= goal : actual <= goal;
+          cellColor = met ? 'color:#1a7a4a' : 'color:#b03a2e';
+        }
+ 
+        html += `<td style="text-align:center;color:#9b9b96">${goal != null ? md.fmt(goal) : '—'}</td>`;
+        html += `<td style="text-align:center;font-weight:500;${cellColor}">${actual != null ? md.fmt(actual) : '—'}</td>`;
+      });
+      // Cleaning equivalents
+      const equiv = row['Cleaning Equivalents'];
+      html += `<td style="text-align:center;font-weight:500">${equiv != null ? equiv.toLocaleString() : '—'}</td>`;
+      html += '</tr>';
+    });
+ 
+    html += '</tbody></table>';
+    tableDiv.innerHTML = html;
+ 
+    // Render initiatives list
+    const initDiv = document.getElementById('initiatives-list');
+    const inits = initRecords.map(r => r.fields).sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
+    initDiv.innerHTML = inits.map(init => {
+      const active = init['# of Projects Active'] || 0;
+      const total = init['# of Projects Total'] || 0;
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0eee8">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${init.Name || ''}</div>
+          <div style="font-size:11px;color:#9b9b96">KPI: ${init.KPI || '—'} · Goal: ${init['KPI (Goal)'] || '—'} · Current: ${init['KPI (Current)'] || '—'}</div>
+        </div>
+        <div style="font-size:12px;color:#6b6b66;white-space:nowrap">
+          <strong>${active}</strong>/${total} projects active
+        </div>
+      </div>`;
+    }).join('');
+ 
+    metricsLoaded = true;
+    document.getElementById('metrics-loading').style.display = 'none';
+    document.getElementById('metrics-content').style.display = 'block';
+ 
+  } catch (err) {
+    console.error('Metrics load error:', err);
+    document.getElementById('metrics-loading').innerHTML =
+      `<div style="color:#b03a2e;font-size:13px">Could not load metrics from OpsHub: ${err.message}</div>`;
+  }
+}
+ 
 
 // ── Init ──
 async function init() {
