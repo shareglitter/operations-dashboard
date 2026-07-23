@@ -228,7 +228,7 @@
  
     <div style="margin-bottom:20px">
       <h2 style="font-size:16px;font-weight:600;margin:0">President's Scorecard</h2>
-      <p style="font-size:12px;color:#9b9b96;margin:4px 0 0">Monthly goals vs actuals · Data from OpsHub · Auto-filled metrics refresh monthly</p>
+      <p style="font-size:12px;color:#9b9b96;margin:4px 0 0">Latest actuals from last completed month · Goals set by leadership · Data from OpsHub</p>
     </div>
  
     <!-- Metric cards -->
@@ -955,8 +955,8 @@ async function renderMetricsTab() {
     const cardsDiv = document.getElementById('metric-cards');
     cardsDiv.innerHTML = METRIC_DEFS.map(md => {
       const row = latestWithActual || {};
-      const goalKey = md.goalF ? Object.keys(row).find(k => k.toLowerCase().includes(md.label.split(' ')[0].toLowerCase()) && k.includes('Goal')) : null;
-      const actualKey = Object.keys(row).find(k => k.toLowerCase().includes(md.label.split(' ')[0].toLowerCase()) && (k.includes('Actual') || k.includes('Equivalents')));
+      const goalKey = md.goalF ? Object.keys(row).find(k => k.startsWith(md.label.split(' - ')[0]) && k.includes('Goal')) : null;
+      const actualKey = Object.keys(row).find(k => k.startsWith(md.label) || (k.startsWith(md.label.split(' - ')[0]) && k.includes('Actual')));
  
       const goal = goalKey ? row[goalKey] : null;
       const actual = actualKey ? row[actualKey] : null;
@@ -990,10 +990,8 @@ async function renderMetricsTab() {
     rows.forEach(row => {
       html += `<tr><td style="font-weight:500">${shortM(row.Name || '')}</td>`;
       visibleMetrics.forEach(md => {
-        const goalKey = Object.keys(row).find(k => k.includes(md.label.split(' - ')[0]) && k.includes('Goal')) ||
-          Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z]/g,'').includes(md.key) && k.includes('Goal'));
-        const actualKey = Object.keys(row).find(k => k.includes(md.label.split(' - ')[0]) && k.includes('Actual')) ||
-          Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z]/g,'').includes(md.key) && k.includes('Actual'));
+        const goalKey = Object.keys(row).find(k => k.startsWith(md.label) && k.includes('Goal'));
+        const actualKey = Object.keys(row).find(k => k.startsWith(md.label) && k.includes('Actual')) || Object.keys(row).find(k => k === md.label);
  
         const goal = goalKey ? row[goalKey] : null;
         const actual = actualKey ? row[actualKey] : null;
