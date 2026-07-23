@@ -8,7 +8,6 @@
  */
 
 const DEFAULT_BASE = 'appzuuUtAQVDg0YW1';
-const BASE_ID = DEFAULT_BASE;
 
 exports.handler = async (event) => {
   // CORS headers for local dev
@@ -27,7 +26,6 @@ exports.handler = async (event) => {
   }
 
   const token = process.env.AIRTABLE_TOKEN;
-  console.log('Token starts with:', token ? token.substring(0, 8) : 'MISSING');
   if (!token) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'AIRTABLE_TOKEN not configured' }) };
   }
@@ -39,24 +37,43 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { table, fields, filter, base } = body;
-  if (!table || !fields) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'table and fields required' }) };
+  const { table, fields, filter, base, maxRecords } = body;
+  // fields may be [] — that's a deliberate "give me every field" request used when
+  // probing a table whose field names we're unsure of. Only undefined/null is an error.
+  if (!table || !Array.isArray(fields)) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'table (string) and fields (array) required' }) };
   }
 
+  const baseId = base || DEFAULT_BASE;
+
   try {
-    const fieldParams = fields.map(f => `fields[]=${encodeURIComponent(f)}`).join('&');
-    const filterParam = filter ? `&filterByFormula=${encodeURIComponent(filter)}` : '';
+    const params = new URLSearchParams();
+    fields.forEach(f => params.append('fields[]', f));
+    params.set('pageSize', '100');
+    if (filter) params.set('filterByFormula', filter);
+    if (maxRecords) params.set('maxRecords', String(maxRecords));
+
     let records = [], offset = null;
 
     do {
-      const baseId = body.base || DEFAULT_BASE;
-      const url = `https://api.airtable.com/v0/${baseId}/${table}?${fieldParams}&pageSize=100${filterParam}${offset ? '&offset=' + offset : ''}`;
+      if (offset) params.set('offset', offset);
+      const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}?${params}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
       if (!res.ok) {
         const errText = await res.text();
-        return { statusCode: res.status, headers, body: JSON.stringify({ error: `Airtable: ${errText}` }) };
+        // Airtable errors are {"error":{"type":"UNKNOWN_FIELD_NAME","message":"..."}}.
+        // Flatten to "TYPE: message" so it survives the trip to the browser console.
+        let detail = errText;
+        try {
+          const e = JSON.parse(errText).error;
+          if (e) detail = typeof e === 'string' ? e : `${e.type}: ${e.message}`;
+        } catch { /* not JSON — pass through raw */ }
+        return {
+          statusCode: res.status,
+          headers,
+          body: JSON.stringify({ error: detail, base: baseId, table })
+        };
       }
 
       const data = await res.json();

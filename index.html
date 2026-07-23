@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Glitter Operations Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<!-- Chart.js MUST load before its plugins — the plugin UMD builds read global.Chart.helpers at parse time -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <script src="data.js"></script>
 <script src="health_data.js"></script>
@@ -343,14 +344,28 @@ function xLabels(data) {
 }
 
 // ── AT API fetch (through Netlify function proxy) ──
-async function fetchAT(tableId, fields, filter) {
+// Single entry point so every caller reports the *actual* Airtable error.
+// A bare "Proxy 422" tells you nothing; Airtable's body names the bad field/formula.
+async function atProxy(payload) {
   const res = await fetch('/.netlify/functions/at-proxy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ table: tableId, fields, filter: filter || undefined })
+    body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error(`Proxy ${res.status}`);
-  const data = await res.json();
+
+  const raw = await res.text();
+  let data;
+  try { data = JSON.parse(raw); } catch { data = null; }
+
+  if (!res.ok) {
+    const detail = (data && data.error) || raw || '(empty response)';
+    throw new Error(`Proxy ${res.status} — table "${payload.table}" — ${detail}`);
+  }
+  return data;
+}
+
+async function fetchAT(tableId, fields, filter) {
+  const data = await atProxy({ table: tableId, fields, filter: filter || undefined });
   return data.records;
 }
 
@@ -966,13 +981,7 @@ const METRIC_DEFS = [
 let metricsLoaded = false;
  
 async function fetchOpsHub(tableId, fields) {
-  const res = await fetch('/.netlify/functions/at-proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ table: tableId, fields, base: OPSHUB_BASE })
-  });
-  if (!res.ok) throw new Error(`OpsHub proxy ${res.status}`);
-  const data = await res.json();
+  const data = await atProxy({ table: tableId, fields, base: OPSHUB_BASE });
   return data.records;
 }
  
@@ -1138,24 +1147,40 @@ function buildForwardMonths(startMonth, count) {
 //   Funding Type — "Project" = grant/project blocks; "Resident", "Commercial / Property Manager", "Community" = Core
 //   Contribution Status — "Active" = paying MRR (Invoice Sent / Missing Payment recover ~0%)
 async function fetchMRRSnapshot() {
+  const SUBSCRIBERS_TABLE = 'Subscribers';
   try {
     const subscriberFields = ['Share', 'Contribution Status', 'Funding Type'];
     const CORE_TYPES = ['Resident', 'Commercial / Property Manager', 'Community'];
- 
-    const res = await fetch('/.netlify/functions/at-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        table: 'Subscribers',
+
+    let data;
+    try {
+      data = await atProxy({
+        table: SUBSCRIBERS_TABLE,
         fields: subscriberFields,
         filter: "{Contribution Status}='Active'"
-      })
-    });
- 
-    if (!res.ok) throw new Error('Proxy ' + res.status);
-    const data = await res.json();
+      });
+    } catch (firstErr) {
+      // Airtable 422 = UNKNOWN_FIELD_NAME / INVALID_FILTER_BY_FORMULA, i.e. our
+      // field names don't match the table. Re-request with no fields[] and no
+      // filter so we can print the field names that actually exist.
+      console.warn('Subscribers request rejected, probing table schema:', firstErr.message);
+      try {
+        const probe = await atProxy({ table: SUBSCRIBERS_TABLE, fields: [], maxRecords: 3 });
+        const seen = new Set();
+        (probe.records || []).forEach(r => Object.keys(r.fields).forEach(k => seen.add(k)));
+        console.warn(
+          `Table "${SUBSCRIBERS_TABLE}" exists and is readable. Actual field names:`,
+          seen.size ? [...seen] : '(no records returned)'
+        );
+        console.warn('Expected by fetchMRRSnapshot:', subscriberFields);
+      } catch (probeErr) {
+        console.warn(`Schema probe also failed — table "${SUBSCRIBERS_TABLE}" may not exist in this base, or the token lacks access:`, probeErr.message);
+      }
+      throw firstErr;
+    }
+
     const records = data.records || [];
- 
+
     let coreShare = 0, coreSubs = 0;
     let projectShare = 0, projectSubs = 0;
  
@@ -1194,7 +1219,8 @@ async function fetchMRRSnapshot() {
       projectSubs: null, projectShare: null,
       totalSubs: null, totalShare: null,
       totalMRR: est, coreMRR: est, projectMRR: null,
-      fallback: true
+      fallback: true,
+      error: err.message
     };
   }
 }
@@ -1230,7 +1256,8 @@ async function renderFinancialsTab() {
     if (mrr.fallback) {
       cardsDiv.innerHTML += `<div style="grid-column:1/-1;font-size:11px;color:#b03a2e;font-style:italic">
         Could not fetch live data from Airtable — showing QB estimate for subscription revenue.
-        Check proxy config and Subscriber table field names.</div>`;
+        ${mrr.error ? `<br><span style="font-family:ui-monospace,monospace;font-style:normal">${mrr.error.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>` : ''}
+        <br>See the browser console for the field names that actually exist on the Subscribers table.</div>`;
     }
  
     // ── 2. Revenue & FC Table ──
