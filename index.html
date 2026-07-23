@@ -1304,7 +1304,7 @@ async function renderFinancialsTab() {
  
     // ── 2. Revenue & FC Table ──
     const lastActualMonth = F.months[F.months.length - 1];
-    const forwardMonths = buildForwardMonths(lastActualMonth, 18); // Jul 2026 → Dec 2027 (captures SSNW)
+    const forwardMonths = buildForwardMonths(lastActualMonth, 24); // Jul 2026 → Jun 2028 (~2yr, past the SSNW window)
     const allMonths = [...F.months, ...forwardMonths];
  
     const FA = F.forwardAssumptions;
@@ -1591,6 +1591,13 @@ async function renderFinancialsTab() {
     // Find annotation positions within forward-only array
     const grantEndIdx = forwardRows.findIndex(r => r.month === '2026-10');
     const ssnwStartIdx = forwardRows.findIndex(r => r.month === '2027-04');
+    // Last month with SSNW revenue — the second cliff, only visible once the
+    // horizon runs past Nov 2027.
+    const ssnwMonths = Object.keys(FA.ssnw || {}).sort();
+    const ssnwEndIdx = ssnwMonths.length
+      ? forwardRows.findIndex(r => r.month === ssnwMonths[ssnwMonths.length - 1]) : -1;
+
+    const cashLabelEvery = Math.max(1, Math.ceil(cashData.length / 8));
     
     if (charts.cash) charts.cash.destroy();
     charts.cash = new Chart(cashCtx, {
@@ -1636,6 +1643,10 @@ async function renderFinancialsTab() {
             // dots; op-income bars label against whichever end points away from zero.
             // NB: datalabels' scriptable context has no `parsed` — read the raw
             // datum off the dataset instead.
+            // Over a 2-year horizon there isn't room to label every month, so thin
+            // to ~8 labels and always keep the last one (the ending cash figure).
+            display: ctx => ctx.dataIndex % cashLabelEvery === 0
+              || ctx.dataIndex === cashData.length - 1,
             anchor: ctx => ctx.dataset.type === 'line' ? 'center' : 'end',
             align: ctx => ctx.dataset.type === 'line'
               ? 'top'
@@ -1669,6 +1680,27 @@ async function renderFinancialsTab() {
                   backgroundColor: '#d9770615', padding: 4
                 }
               } : {},
+              ssnwEnd: ssnwEndIdx >= 0 ? {
+                type: 'line',
+                xMin: ssnwEndIdx + 0.5, xMax: ssnwEndIdx + 0.5,
+                borderColor: '#d9770680', borderDash: [4,4], borderWidth: 2,
+                label: {
+                  display: true, content: 'SSNW Ends', position: 'start',
+                  font: { size: 10, weight: 'bold' }, color: '#d97706',
+                  backgroundColor: '#d9770615', padding: 4
+                }
+              } : {},
+              // Cash crosses zero on this horizon — mark the line so it reads as
+              // a threshold rather than just another gridline.
+              zeroCash: {
+                type: 'line', yMin: 0, yMax: 0,
+                borderColor: '#b03a2e', borderWidth: 1.5,
+                label: {
+                  display: true, content: 'Cash = $0', position: 'end',
+                  font: { size: 9 }, color: '#b03a2e',
+                  backgroundColor: '#ffffffcc', padding: 3
+                }
+              },
             }
           },
           tooltip: {
@@ -1686,7 +1718,7 @@ async function renderFinancialsTab() {
           }
         },
         scales: {
-          x: { ticks: { font: { size: 10 }, color: '#9b9b96' }, grid: { display: false } },
+          x: { ticks: { font: { size: 10 }, color: '#9b9b96', maxRotation: 45, autoSkip: true, autoSkipPadding: 6 }, grid: { display: false } },
           y: { ticks: { font: { size: 10 }, color: '#9b9b96', callback: v => fmt$(v) }, grid: { color: '#f0eee840' } },
         }
       }
