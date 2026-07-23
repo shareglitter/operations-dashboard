@@ -470,8 +470,8 @@ function renderCleanCharts() {
   document.getElementById('sc-bags').textContent = `${(totalBags / 1000).toFixed(1)}K`;
   document.getElementById('sc-last').textContent = fN(last.total_cleans);
   document.getElementById('sc-last-sub').textContent = shortM(last.month);
-  document.getElementById('sc-rev').textContent = fD(totalRev);
-  document.getElementById('sc-rev-sub').textContent = `${Math.round((totalRev - totalCogs) / totalRev * 100)}% gross margin`;
+  //document.getElementById('sc-rev').textContent = fD(totalRev);
+  //document.getElementById('sc-rev-sub').textContent = `${Math.round((totalRev - totalCogs) / totalRev * 100)}% gross margin`;
 
   // Build datasets based on filter
   const barDS = [];
