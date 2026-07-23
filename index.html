@@ -1413,18 +1413,33 @@ async function renderFinancialsTab() {
       }
     });
  
-    // ── 4. Cash Position Chart ──
+// ── 4. Cash Position Chart (forward-only, includes below-the-line adjustments) ──
     const cashCtx = document.getElementById('cash-chart').getContext('2d');
     const startCash = FA.startingCash || 0;
+    const adjustments = FA.cashAdjustments || {};
+
+    // Only forward months for cash chart (actuals have too many one-offs to reconstruct)
+    const forwardRows = rows.filter(r => !r.isActual);
     let cumCash = startCash;
-    const cashData = rows.map(r => {
-      cumCash += r.opIncome;
-      return { month: shortMonth(r.month), opIncome: r.opIncome, cash: cumCash, isActual: r.isActual };
+    const cashData = forwardRows.map(r => {
+      const monthAdj = (adjustments[r.month] || []).reduce((s, a) => s + a.amount, 0);
+      const adjLabels = (adjustments[r.month] || []).map(a =>
+        (a.amount < 0 ? '-' : '+') + fmtFull$(Math.abs(a.amount)) + ' ' + a.label
+      );
+      cumCash += r.opIncome + monthAdj;
+      return {
+        month: shortMonth(r.month),
+        opIncome: r.opIncome,
+        adjustment: monthAdj,
+        adjLabels,
+        cash: cumCash,
+      };
     });
- 
-    const grantEndIdx = rows.findIndex(r => r.month === '2026-10'); // last DCED/Parks payment
-    const ssnwStartIdx = rows.findIndex(r => r.month === '2027-04');
- 
+
+    // Find annotation positions within forward-only array
+    const grantEndIdx = forwardRows.findIndex(r => r.month === '2026-10');
+    const ssnwStartIdx = forwardRows.findIndex(r => r.month === '2027-04');
+    
     new Chart(cashCtx, {
       type: 'bar',
       data: {

@@ -149,11 +149,10 @@ const FINANCIALS = {
       ],
       '2026-09': [
         { label: 'Estimated tax payment', amount: -20000 },
-        
+        { label: 'Legal fees (contracted)', amount: -12500 },
       ],
       '2026-12': [
         { label: 'Estimated tax payment', amount: -20000 },
-        { label: 'Legal fees (contracted)', amount: -12500 },
       ],
       '2027-04': [
         { label: 'Tax return', amount: 61000 },
