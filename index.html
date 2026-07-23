@@ -1274,14 +1274,18 @@ async function renderFinancialsTab() {
       { label: 'Core MRR (normalized)', value: mrr.coreMRR != null ? fmtFull$(mrr.coreMRR) : '—', color: '#2563eb' },
       { label: 'Project Subscribers', value: mrr.projectSubs != null ? mrr.projectSubs.toLocaleString() : '—', color: '#6366f1' },
       { label: 'Project Share / Cycle', value: mrr.projectShare != null ? fmtFull$(mrr.projectShare) : '—', color: '#6366f1' },
-      { label: 'Total MRR (normalized)', value: mrr.totalMRR != null ? fmtFull$(mrr.totalMRR) : '—', color: '#2563eb', big: true },
+      { label: 'Total MRR (normalized)', value: mrr.totalMRR != null ? fmtFull$(mrr.totalMRR) : '—', color: '#2563eb' },
     ];
  
+    // Use the shared .stat-label / .stat-value / .stat-sub classes so these match
+    // every other stat card in the dashboard (26px, -0.5px tracking). Only colour
+    // varies per card. The label gets a two-line min-height so that the values sit
+    // on a common baseline whether or not the label above them wraps.
     cardsDiv.innerHTML = mrrCards.map(c => `
       <div class="stat" style="text-align:left">
-        <div class="stat-label" style="margin-bottom:6px">${c.label}</div>
-        <div style="font-size:${c.big ? '28' : '22'}px;font-weight:600;color:${c.color}">${c.value}</div>
-        ${c.sub ? `<div style="font-size:11px;color:#9b9b96;margin-top:3px">${c.sub}</div>` : ''}
+        <div class="stat-label" style="min-height:24px">${c.label}</div>
+        <div class="stat-value" style="color:${c.color}">${c.value}</div>
+        ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
       </div>
     `).join('');
  
@@ -1289,7 +1293,7 @@ async function renderFinancialsTab() {
       cardsDiv.innerHTML += `<div style="grid-column:1/-1;font-size:11px;color:#b03a2e;font-style:italic">
         Could not fetch live data from Airtable — showing QB estimate for subscription revenue.
         ${mrr.error ? `<br><span style="font-family:ui-monospace,monospace;font-style:normal">${mrr.error.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>` : ''}
-        <br>See the browser console for the field names that actually exist on the Subscribers table.</div>`;
+        <br>See the browser console for the field names that actually exist on the Active Subscriptions table.</div>`;
     }
  
     // ── 2. Revenue & FC Table ──
@@ -1435,6 +1439,10 @@ async function renderFinancialsTab() {
     const fcCtx = document.getElementById('fc-breakdown-chart').getContext('2d');
     const actualMonths = F.months.map(shortMonth);
  
+    // Per-month stack totals, for the summary label above each column
+    const fcTotals = F.months.map((_, i) =>
+      bucketKeys.reduce((s, k) => s + (F.fixedCosts[k][i] || 0), 0));
+
     new Chart(fcCtx, {
       type: 'bar',
       data: {
@@ -1450,8 +1458,35 @@ async function renderFinancialsTab() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { top: 22 } },   // room for the column totals
         plugins: {
           legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, color: '#9b9b96' } },
+          // Two labels per element: the segment's own value, and (on the topmost
+          // dataset only) the total for the whole column.
+          datalabels: {
+            labels: {
+              value: {
+                anchor: 'center', align: 'center',
+                font: { size: 9, weight: '500' }, color: '#1a1a18',
+                // Only label a segment tall enough to hold the text. Measuring the
+                // drawn band (rather than a % of the column) keeps this correct as
+                // the chart resizes and as the y-axis max moves with the data —
+                // the small buckets stay legible in the tooltip either way.
+                formatter: (v, ctx) => {
+                  if (!v) return '';
+                  const el = ctx.chart.getDatasetMeta(ctx.datasetIndex).data[ctx.dataIndex];
+                  if (!el || Math.abs(el.base - el.y) < 14) return '';
+                  return fmt$(v);
+                }
+              },
+              total: {
+                anchor: 'end', align: 'end', offset: 2,
+                font: { size: 10, weight: '600' }, color: '#6b6b66',
+                formatter: (v, ctx) => ctx.datasetIndex === bucketKeys.length - 1
+                  ? fmt$(fcTotals[ctx.dataIndex]) : ''
+              }
+            }
+          },
           annotation: {
             annotations: {
               budgetLine: {
@@ -1534,8 +1569,23 @@ async function renderFinancialsTab() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { top: 24 } },   // room for the lifted cash labels
         plugins: {
           legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, color: '#9b9b96' } },
+          datalabels: {
+            // Cash line sits well above the bars, so lift its labels clear of the
+            // dots; op-income bars label against whichever end points away from zero.
+            anchor: ctx => ctx.dataset.type === 'line' ? 'center' : 'end',
+            align: ctx => ctx.dataset.type === 'line'
+              ? 'top'
+              : (ctx.parsed.y >= 0 ? 'end' : 'start'),
+            offset: ctx => ctx.dataset.type === 'line' ? 10 : 2,
+            font: { size: 9, weight: '500' },
+            color: ctx => ctx.dataset.type === 'line'
+              ? '#2563eb'
+              : (ctx.parsed.y >= 0 ? '#1a7a4a' : '#b03a2e'),
+            formatter: v => fmt$(v)
+          },
           annotation: {
             annotations: {
               grantEnd: grantEndIdx >= 0 ? {
