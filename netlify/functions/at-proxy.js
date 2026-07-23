@@ -27,6 +27,7 @@ exports.handler = async (event) => {
   }
 
   const token = process.env.AIRTABLE_TOKEN;
+  console.log('Token starts with:', token ? token.substring(0, 8) : 'MISSING');
   if (!token) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'AIRTABLE_TOKEN not configured' }) };
   }
