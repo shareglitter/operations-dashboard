@@ -160,7 +160,7 @@ const FINANCIALS = {
       ],
       '2026-09': [
         { label: 'Estimated tax payment', amount: -20000 },
-        { label: 'Legal fees (contracted)', amount: -12500 },
+        { label: 'Legal fees (contracted)', amount: -18500 },
       ],
       '2026-12': [
         { label: 'Estimated tax payment', amount: -20000 },
