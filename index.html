@@ -1379,6 +1379,29 @@ async function renderFinancialsTab() {
       };
     });
  
+    // ── Cash schedule — shared by the table's Cash section and the cash chart ──
+    // Below-the-line items (tax payments, contracted one-offs) never touch operating
+    // income but do hit the bank balance, so they have to be visible somewhere or the
+    // cash line looks like it moves for no reason. Forward months only: actuals carry
+    // too many unreconstructable one-offs.
+    const cashAdjustments = FA.cashAdjustments || {};
+    const adjustmentLabels = [...new Set(
+      Object.values(cashAdjustments).flat().map(a => a.label)
+    )];
+
+    let runningCash = FA.startingCash || 0;
+    const cashByMonth = {};
+    rows.filter(r => !r.isActual).forEach(r => {
+      const items = cashAdjustments[r.month] || [];
+      const adjTotal = items.reduce((s, a) => s + a.amount, 0);
+      runningCash += r.opIncome + adjTotal;
+      cashByMonth[r.month] = {
+        items, adjTotal,
+        netChange: r.opIncome + adjTotal,
+        cash: runningCash,
+      };
+    });
+
     // Render table
     const wrap = document.getElementById('fin-table-wrap');
     let html = '<table class="data-table"><thead>';
@@ -1421,24 +1444,58 @@ async function renderFinancialsTab() {
     });
     html += finRow('Total Fixed Costs', rows, r => r.fcTotal, null, false, true);
  
-    // FC vs Budget indicator
-    html += '<tr><td style="padding-left:12px;font-size:11px;color:#9b9b96">vs $61.4K Budget</td>';
+    // FC vs Budget indicator. Normalizations come from financials_data.js rather
+    // than being hardcoded here, and any month that uses one is marked with a
+    // dagger and spelled out in the footnote below the table.
+    const fcNorm = F.fcNormalizations || {};
+    const normalizedMonths = [];
+    html += `<tr><td style="padding-left:12px;font-size:11px;color:#9b9b96">vs ${fmt$(PF.total)} Budget</td>`;
     rows.forEach(r => {
-      let fcComp = r.fcTotal;
-      // Normalize June annual bonus for comparison
-      if (r.month === '2026-06') fcComp = r.fcTotal - 56900; // strip annual bonus spike
-      const delta = fcComp - PF.total;
+      const norm = fcNorm[r.month];
+      if (norm && r.isActual) normalizedMonths.push({ month: r.month, ...norm });
+      const delta = (r.fcTotal - (norm ? norm.amount : 0)) - PF.total;
       const color = delta <= 0 ? '#1a7a4a' : '#b03a2e';
-      const label = delta <= 0 ? fmt$(delta) : '+' + fmt$(delta);
-      html += `<td style="text-align:right;font-size:10px;color:${color};font-weight:500">${r.isActual ? label : '—'}</td>`;
+      const label = (delta <= 0 ? '' : '+') + fmt$(delta) + (norm ? '<sup>†</sup>' : '');
+      const title = norm
+        ? `Raw ${fmtFull$(r.fcTotal)} less ${fmtFull$(norm.amount)} ${norm.label} = ${fmtFull$(r.fcTotal - norm.amount)} vs ${fmtFull$(PF.total)} budget`
+        : '';
+      html += `<td style="text-align:right;font-size:10px;color:${color};font-weight:500" title="${title}">${r.isActual ? label : '—'}</td>`;
     });
     html += '</tr>';
  
     // Operating Income
     html += sectionHeader('', rows.length);
     html += finRow('Operating Income', rows, r => r.opIncome, null, false, true);
- 
+
+    // ── Below-the-line cash items ──
+    // Itemized so every movement in the cash line traces back to a named row.
+    html += sectionHeader('Post-Operating Cash Items (forward only)', rows.length);
+    adjustmentLabels.forEach(lbl => {
+      html += finRow(lbl, rows, r => {
+        const c = cashByMonth[r.month];
+        if (!c) return null;
+        const hit = c.items.filter(a => a.label === lbl).reduce((s, a) => s + a.amount, 0);
+        return hit || null;   // blank in months this item doesn't land
+      }, '#9b9b96', true);
+    });
+    html += finRow('Total Cash Adjustments', rows,
+      r => cashByMonth[r.month] ? cashByMonth[r.month].adjTotal : null, '#b03a2e');
+    html += finRow('Net Cash Change', rows,
+      r => cashByMonth[r.month] ? cashByMonth[r.month].netChange : null, null, false, true);
+    html += finRow('Ending Cash Position', rows,
+      r => cashByMonth[r.month] ? cashByMonth[r.month].cash : null, '#2563eb', false, true);
+
     html += '</tbody></table>';
+
+    // Disclose any budget normalization rather than burying it in the delta
+    if (normalizedMonths.length) {
+      html += normalizedMonths.map(n =>
+        `<div style="font-size:11px;color:#9b9b96;margin-top:8px">
+          <sup>†</sup> ${shortMonth(n.month)} vs-budget excludes ${fmtFull$(n.amount)} ${n.label};
+          Total Fixed Costs above shows the raw actual.
+        </div>`).join('');
+    }
+
     wrap.innerHTML = html;
  
     // ── 3. FC Breakdown Chart ──
@@ -1516,24 +1573,18 @@ async function renderFinancialsTab() {
  
 // ── 4. Cash Position Chart (forward-only, includes below-the-line adjustments) ──
     const cashCtx = document.getElementById('cash-chart').getContext('2d');
-    const startCash = FA.startingCash || 0;
-    const adjustments = FA.cashAdjustments || {};
-
-    // Only forward months for cash chart (actuals have too many one-offs to reconstruct)
+    // Only forward months for cash chart (actuals have too many one-offs to reconstruct).
+    // Reads the same cashByMonth schedule the table renders, so the two cannot diverge.
     const forwardRows = rows.filter(r => !r.isActual);
-    let cumCash = startCash;
     const cashData = forwardRows.map(r => {
-      const monthAdj = (adjustments[r.month] || []).reduce((s, a) => s + a.amount, 0);
-      const adjLabels = (adjustments[r.month] || []).map(a =>
-        (a.amount < 0 ? '-' : '+') + fmtFull$(Math.abs(a.amount)) + ' ' + a.label
-      );
-      cumCash += r.opIncome + monthAdj;
+      const c = cashByMonth[r.month];
       return {
         month: shortMonth(r.month),
         opIncome: r.opIncome,
-        adjustment: monthAdj,
-        adjLabels,
-        cash: cumCash,
+        adjustment: c.adjTotal,
+        adjLabels: c.items.map(a =>
+          (a.amount < 0 ? '−' : '+') + fmtFull$(Math.abs(a.amount)) + ' ' + a.label),
+        cash: c.cash,
       };
     });
 
@@ -1621,7 +1672,17 @@ async function renderFinancialsTab() {
             }
           },
           tooltip: {
-            callbacks: { label: ctx => ctx.dataset.label + ': ' + fmtFull$(ctx.parsed.y) }
+            callbacks: {
+              label: ctx => ctx.dataset.label + ': ' + fmtFull$(ctx.parsed.y),
+              // Name the below-the-line items that moved cash this month, so a
+              // drop in the line is never unexplained.
+              afterBody: items => {
+                const d = cashData[items[0].dataIndex];
+                return d && d.adjLabels.length
+                  ? ['', 'Post-operating cash items:', ...d.adjLabels.map(l => '  ' + l)]
+                  : [];
+              }
+            }
           }
         },
         scales: {

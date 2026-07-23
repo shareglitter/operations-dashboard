@@ -63,6 +63,17 @@ const FINANCIALS = {
     operations: [1581, 1835, 3864, 6412, 2846, 2310],
   },
 
+  // ─── ONE-OFF NORMALIZATIONS ───
+  // Amounts stripped from a month's fixed costs ONLY for the "vs Budget" comparison,
+  // so a lumpy annual payout doesn't read as a run-rate overage.
+  // The Total Fixed Costs row and the FC Breakdown chart always show the RAW actual.
+  // Every entry here is disclosed in a footnote under the table — nothing is silently removed.
+  fcNormalizations: {
+    // 6812 Bonuses — annual payout landing in June. The pro forma budgets bonuses
+    // at $2,590/mo, so the full annual amount is excluded from the monthly comparison.
+    '2026-06': { amount: 61209, label: 'annual bonus payout' },
+  },
+
   // ─── PRO FORMA GO-FORWARD (monthly budget) ───
   // Source: Owner's pro forma model, ~$61,390/mo total FC
   proForma: {
