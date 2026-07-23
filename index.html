@@ -4,10 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Glitter Operations Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <script src="data.js"></script>
 <script src="health_data.js"></script>
+<script src="financials_data.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f6f3; color: #1a1a18; min-height: 100vh; padding: 28px 24px 40px; }
@@ -74,6 +76,7 @@
   <button class="tab-btn" onclick="switchTab('blocks')">Block Growth</button>
   <button class="tab-btn" onclick="switchTab('health')">Block Health</button>
   <button class="tab-btn" onclick="switchTab('metrics')">President's Metrics</button>
+  <button class="tab-btn" onclick="switchTab('financials')">Financials</button>
   <button class="tab-btn" onclick="switchTab('table')">Data Table</button>
   <button class="export-btn" onclick="exportCSV()">Export CSV</button>
 </div>
@@ -249,6 +252,53 @@
       <div class="chart-title">Active Initiatives</div>
       <div class="chart-sub">From OpsHub · Projects driving each metric</div>
       <div id="initiatives-list"></div>
+    </div>
+ 
+  </div>
+</div>
+
+<!-- ========== FINANCIALS TAB ========== -->
+<div id="tab-financials" class="tab-content">
+  <div id="fin-loading" class="loading" style="height:300px"><div class="spinner"></div> Loading financials...</div>
+  <div id="fin-content" style="display:none">
+ 
+    <!-- ── Section 1: MRR Snapshot ── -->
+    <div style="margin-bottom:24px">
+      <h2 style="font-size:16px;font-weight:600;margin:0">MRR Snapshot</h2>
+      <p style="font-size:12px;color:#9b9b96;margin:4px 0 0">Current active subscribers · Live from Airtable · Per-billing-cycle amounts</p>
+    </div>
+ 
+    <div id="mrr-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:32px"></div>
+ 
+    <!-- ── Section 2: Revenue, Margin & Fixed Costs ── -->
+    <div class="chart-card">
+      <div class="chart-title">Revenue & Fixed Costs</div>
+      <div class="chart-sub">Trailing actuals (QB) · Forward projections (pro forma) · FC budget: $61,390/mo</div>
+      <div style="overflow-x:auto" id="fin-table-wrap"></div>
+      <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">
+        Revenue actuals from QuickBooks. Forward subscription uses AT MRR × 2%/mo growth.
+        Grant revenue (DCED + Parks) from contract schedules through Oct 2026.
+        SSNW ($62.5K/mo) scheduled Apr–Nov 2027. Subscription GM: 47.5%.
+        Grant/SSNW GM: actual contract margins. FC: $61,390/mo pro forma budget.
+      </div>
+    </div>
+ 
+    <!-- ── Section 3: FC Breakdown (trailing bar chart) ── -->
+    <div class="chart-card" style="margin-top:16px">
+      <div class="chart-title">Fixed Cost Breakdown</div>
+      <div class="chart-sub">Monthly by category · Dashed line = $61,390 pro forma budget</div>
+      <canvas id="fc-breakdown-chart" height="260"></canvas>
+    </div>
+ 
+    <!-- ── Section 4: Operating Income & Cash ── -->
+    <div class="chart-card" style="margin-top:16px">
+      <div class="chart-title">Operating Income & Cash Position</div>
+      <div class="chart-sub">Monthly operating income (bars) · Estimated cash position (line) · Forward = projected</div>
+      <canvas id="cash-chart" height="260"></canvas>
+      <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">
+        Cash position = starting balance + cumulative operating income. Approximate — does not include
+        one-time items, tax payments, or timing differences between accrual and cash.
+      </div>
     </div>
  
   </div>
@@ -431,11 +481,13 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
   document.querySelectorAll('.tab-row .tab-btn').forEach((b, i) => {
-    b.classList.toggle('active', ['cleans', 'blocks', 'health', 'metrics', 'table'][i] === tab);
+    b.classList.toggle('active', ['cleans', 'blocks', 'health', 'metrics', 'financials', 'table'][i] === tab);
   });
   if (tab === 'table') renderTable();
   if (tab === 'health') renderHealthTab();
   if (tab === 'metrics') renderMetricsTab();
+  if (tab === 'financials') renderFinancialsTab();
+
 }
 
 function setBlockFilter(f) {
@@ -1042,6 +1094,449 @@ async function renderMetricsTab() {
   }
 }
  
+
+// ── Financials Tab ──
+ 
+let financialsLoaded = false;
+ 
+// Short month label helper (reuse if shortM already exists)
+function shortMonth(m) {
+  if (!m) return '';
+  const [y, mo] = m.split('-');
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return names[parseInt(mo,10)-1] + ' ' + y.slice(2);
+}
+ 
+function fmt$(v) {
+  if (v == null) return '—';
+  const neg = v < 0;
+  const abs = Math.abs(v);
+  const s = abs >= 1000 ? '$' + (abs/1000).toFixed(1) + 'K' : '$' + abs.toLocaleString();
+  return neg ? '-' + s : s;
+}
+ 
+function fmtFull$(v) {
+  if (v == null) return '—';
+  return (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString();
+}
+ 
+// Build forward months array from current month
+function buildForwardMonths(startMonth, count) {
+  const months = [];
+  let [y, m] = startMonth.split('-').map(Number);
+  for (let i = 0; i < count; i++) {
+    m++;
+    if (m > 12) { m = 1; y++; }
+    months.push(y + '-' + String(m).padStart(2,'0'));
+  }
+  return months;
+}
+ 
+// Fetch MRR from Airtable Subscribers table
+// Field names from AT interface:
+//   Share — dollar amount per billing cycle
+//   Funding Type — "Project" = grant/project blocks; "Resident", "Commercial / Property Manager", "Community" = Core
+//   Contribution Status — "Active" = paying MRR (Invoice Sent / Missing Payment recover ~0%)
+async function fetchMRRSnapshot() {
+  try {
+    const subscriberFields = ['Share', 'Contribution Status', 'Funding Type'];
+    const CORE_TYPES = ['Resident', 'Commercial / Property Manager', 'Community'];
+ 
+    const res = await fetch('/.netlify/functions/at-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        table: 'Subscribers',
+        fields: subscriberFields,
+        filter: "{Contribution Status}='Active'"
+      })
+    });
+ 
+    if (!res.ok) throw new Error('Proxy ' + res.status);
+    const data = await res.json();
+    const records = data.records || [];
+ 
+    let coreShare = 0, coreSubs = 0;
+    let projectShare = 0, projectSubs = 0;
+ 
+    records.forEach(r => {
+      const f = r.fields;
+      const share = parseFloat(f.Share) || 0;
+      const fundingType = (f['Funding Type'] || '').trim();
+      const isCore = CORE_TYPES.includes(fundingType);
+ 
+      if (isCore) {
+        coreShare += share;
+        coreSubs++;
+      } else {
+        // "Project" funding type = project/grant blocks
+        projectShare += share;
+        projectSubs++;
+      }
+    });
+ 
+    return {
+      coreSubs, coreShare,
+      projectSubs, projectShare,
+      totalSubs: coreSubs + projectSubs,
+      totalShare: coreShare + projectShare,
+      // MRR = Share per cycle × 13 cycles / 12 months
+      totalMRR: (coreShare + projectShare) * 13 / 12,
+      coreMRR: coreShare * 13 / 12,
+      projectMRR: projectShare * 13 / 12,
+    };
+  } catch (err) {
+    console.warn('MRR fetch failed, using estimates:', err);
+    const latestSub = FINANCIALS.revenue.subscription;
+    const est = latestSub[latestSub.length - 1];
+    return {
+      coreSubs: null, coreShare: null,
+      projectSubs: null, projectShare: null,
+      totalSubs: null, totalShare: null,
+      totalMRR: est, coreMRR: est, projectMRR: null,
+      fallback: true
+    };
+  }
+}
+ 
+async function renderFinancialsTab() {
+  if (financialsLoaded) return;
+ 
+  try {
+    const F = FINANCIALS;
+    const PF = F.proForma;
+ 
+    // ── 1. MRR Snapshot ──
+    const mrr = await fetchMRRSnapshot();
+ 
+    const cardsDiv = document.getElementById('mrr-cards');
+    const mrrCards = [
+      { label: 'Active Core Subscribers', value: mrr.coreSubs != null ? mrr.coreSubs.toLocaleString() : '—', color: '#1a7a4a' },
+      { label: 'Core Share / Cycle', value: mrr.coreShare != null ? fmtFull$(mrr.coreShare) : '—', color: '#1a7a4a' },
+      { label: 'Core MRR (normalized)', value: mrr.coreMRR != null ? fmtFull$(mrr.coreMRR) : '—', color: '#2563eb' },
+      { label: 'Project Subscribers', value: mrr.projectSubs != null ? mrr.projectSubs.toLocaleString() : '—', color: '#6366f1' },
+      { label: 'Project Share / Cycle', value: mrr.projectShare != null ? fmtFull$(mrr.projectShare) : '—', color: '#6366f1' },
+      { label: 'Total MRR (normalized)', value: mrr.totalMRR != null ? fmtFull$(mrr.totalMRR) : '—', color: '#2563eb', big: true },
+    ];
+ 
+    cardsDiv.innerHTML = mrrCards.map(c => `
+      <div class="stat" style="text-align:left">
+        <div class="stat-label" style="margin-bottom:6px">${c.label}</div>
+        <div style="font-size:${c.big ? '28' : '22'}px;font-weight:600;color:${c.color}">${c.value}</div>
+        ${c.sub ? `<div style="font-size:11px;color:#9b9b96;margin-top:3px">${c.sub}</div>` : ''}
+      </div>
+    `).join('');
+ 
+    if (mrr.fallback) {
+      cardsDiv.innerHTML += `<div style="grid-column:1/-1;font-size:11px;color:#b03a2e;font-style:italic">
+        Could not fetch live data from Airtable — showing QB estimate for subscription revenue.
+        Check proxy config and Subscriber table field names.</div>`;
+    }
+ 
+    // ── 2. Revenue & FC Table ──
+    const lastActualMonth = F.months[F.months.length - 1];
+    const forwardMonths = buildForwardMonths(lastActualMonth, 18); // Jul 2026 → Dec 2027 (captures SSNW)
+    const allMonths = [...F.months, ...forwardMonths];
+ 
+    const FA = F.forwardAssumptions;
+ 
+    // Helper: look up grant/project schedule revenue & GM for a given month
+    function getScheduleForMonth(m) {
+      const dced = FA.dced[m] || { rev: 0, gm: 0 };
+      const parks = FA.parks[m] || { rev: 0, gm: 0 };
+      const ssnw = FA.ssnw[m] || { rev: 0, gm: 0 };
+      return {
+        grantRev: dced.rev + parks.rev,
+        grantGM: dced.gm + parks.gm,
+        ssnwRev: ssnw.rev,
+        ssnwGM: ssnw.gm,
+      };
+    }
+ 
+    // Build row data for each month
+    const rows = allMonths.map((m, i) => {
+      const isActual = i < F.months.length;
+      const fwdIdx = i - F.months.length;
+ 
+      let subRev, projRev, grantRev, ssnwRev, impactRev, totalRev;
+      let cogsTotal, grossProfit;
+      let fcBuckets = {};
+      let fcTotal;
+ 
+      if (isActual) {
+        // QB actuals — project vs grant split from financials_data.js
+        subRev = F.revenue.subscription[i];
+        projRev = F.revenue.project[i];
+        grantRev = F.revenue.grant[i];
+        ssnwRev = 0;
+        impactRev = (F.revenue.impactFund[i] || 0) + (F.revenue.billableExpense[i] || 0) + (F.revenue.discounts[i] || 0);
+        totalRev = subRev + projRev + grantRev + impactRev;
+ 
+        cogsTotal = (F.cogs.labor[i] || 0) + (F.cogs.workersComp[i] || 0) + (F.cogs.supplies[i] || 0);
+        grossProfit = totalRev - cogsTotal;
+ 
+        Object.keys(F.fixedCosts).forEach(k => { fcBuckets[k] = F.fixedCosts[k][i]; });
+        fcTotal = Object.values(fcBuckets).reduce((a,b) => a + b, 0);
+      } else {
+        // Forward projection
+        const growthMult = Math.pow(1 + FA.subscriptionGrowthPct/100, fwdIdx + 1);
+        subRev = Math.round(FA.subscriptionMonthly * growthMult);
+        projRev = FA.projectMonthly;
+ 
+        // Grant + SSNW from actual contract schedules
+        const sched = getScheduleForMonth(m);
+        grantRev = sched.grantRev;
+        ssnwRev = sched.ssnwRev;
+        impactRev = 0;
+        totalRev = subRev + projRev + grantRev + ssnwRev;
+ 
+        // Gross margin: 47.5% on subscription + project, actual GM$ on grants/SSNW
+        const subProjGM = Math.round((subRev + projRev) * FA.subscriptionGMPct / 100);
+        grossProfit = subProjGM + sched.grantGM + sched.ssnwGM;
+        cogsTotal = totalRev - grossProfit;
+ 
+        Object.keys(PF.buckets).forEach(k => { fcBuckets[k] = PF.buckets[k]; });
+        fcTotal = PF.total;
+      }
+ 
+      const opIncome = grossProfit - fcTotal;
+ 
+      return {
+        month: m, isActual,
+        subRev, projRev, grantRev, ssnwRev, impactRev, totalRev,
+        cogsTotal, grossProfit,
+        fcBuckets, fcTotal,
+        opIncome,
+      };
+    });
+ 
+    // Render table
+    const wrap = document.getElementById('fin-table-wrap');
+    let html = '<table class="data-table"><thead>';
+ 
+    // Header row 1: month labels
+    html += '<tr><th style="min-width:140px"></th>';
+    rows.forEach(r => {
+      const bg = r.isActual ? '' : 'background:#f8f7f4;';
+      html += `<th style="text-align:right;font-size:11px;white-space:nowrap;${bg}">${shortMonth(r.month)}${r.isActual ? '' : ' <span style="color:#9b9b96;font-size:9px">proj</span>'}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+ 
+    // Revenue section — 4 lines: Subscription, Project, Grant (DCED+Parks), SSNW
+    html += sectionHeader('Revenue', rows.length);
+    html += finRow('Subscription (Core)', rows, r => r.subRev, '#1a7a4a');
+    html += finRow('Project (Area 32)', rows, r => r.projRev, '#2563eb', true);
+    html += finRow('Grant (DCED + Parks)', rows, r => r.grantRev, '#6366f1', true);
+    html += finRow('SSNW (Apr \'27+)', rows, r => r.ssnwRev, '#d97706', true);
+    html += finRow('Other (Impact/BEI/Disc)', rows, r => r.impactRev, '#9b9b96', true);
+    html += finRow('Total Revenue', rows, r => r.totalRev, null, false, true);
+ 
+    // COGS & Margin
+    html += sectionHeader('Cost of Goods Sold', rows.length);
+    html += finRow('COGS (Labor + Supplies)', rows, r => r.cogsTotal, '#b03a2e');
+    html += finRow('Gross Profit', rows, r => r.grossProfit, '#1a7a4a', false, true);
+ 
+    // Gross margin %
+    html += '<tr><td style="padding-left:12px;font-size:11px;color:#9b9b96">Gross Margin %</td>';
+    rows.forEach(r => {
+      const gm = r.totalRev > 0 ? ((r.grossProfit / r.totalRev) * 100).toFixed(0) + '%' : '—';
+      html += `<td style="text-align:right;font-size:11px;color:#9b9b96">${gm}</td>`;
+    });
+    html += '</tr>';
+ 
+    // Fixed Costs
+    html += sectionHeader('Fixed Costs', rows.length);
+    const bucketKeys = Object.keys(F.bucketLabels);
+    bucketKeys.forEach(k => {
+      html += finRow(F.bucketLabels[k], rows, r => r.fcBuckets[k], F.bucketColors[k], true);
+    });
+    html += finRow('Total Fixed Costs', rows, r => r.fcTotal, null, false, true);
+ 
+    // FC vs Budget indicator
+    html += '<tr><td style="padding-left:12px;font-size:11px;color:#9b9b96">vs $61.4K Budget</td>';
+    rows.forEach(r => {
+      let fcComp = r.fcTotal;
+      // Normalize June annual bonus for comparison
+      if (r.month === '2026-06') fcComp = r.fcTotal - 56900; // strip annual bonus spike
+      const delta = fcComp - PF.total;
+      const color = delta <= 0 ? '#1a7a4a' : '#b03a2e';
+      const label = delta <= 0 ? fmt$(delta) : '+' + fmt$(delta);
+      html += `<td style="text-align:right;font-size:10px;color:${color};font-weight:500">${r.isActual ? label : '—'}</td>`;
+    });
+    html += '</tr>';
+ 
+    // Operating Income
+    html += sectionHeader('', rows.length);
+    html += finRow('Operating Income', rows, r => r.opIncome, null, false, true);
+ 
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+ 
+    // ── 3. FC Breakdown Chart ──
+    const fcCtx = document.getElementById('fc-breakdown-chart').getContext('2d');
+    const actualMonths = F.months.map(shortMonth);
+ 
+    new Chart(fcCtx, {
+      type: 'bar',
+      data: {
+        labels: actualMonths,
+        datasets: bucketKeys.map(k => ({
+          label: F.bucketLabels[k],
+          data: F.fixedCosts[k],
+          backgroundColor: F.bucketColors[k] + '99',
+          borderColor: F.bucketColors[k],
+          borderWidth: 1,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, color: '#9b9b96' } },
+          annotation: {
+            annotations: {
+              budgetLine: {
+                type: 'line', yMin: PF.total, yMax: PF.total,
+                borderColor: '#b03a2e', borderDash: [6,3], borderWidth: 1.5,
+                label: { display: true, content: 'Budget $61.4K', position: 'end', font: { size: 9 }, color: '#b03a2e' }
+              }
+            }
+          },
+          tooltip: {
+            callbacks: { label: ctx => ctx.dataset.label + ': ' + fmtFull$(ctx.parsed.y) }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks: { font: { size: 10 }, color: '#9b9b96' }, grid: { display: false } },
+          y: { stacked: true, ticks: { font: { size: 10 }, color: '#9b9b96', callback: v => fmt$(v) }, grid: { color: '#f0eee840' } },
+        }
+      }
+    });
+ 
+    // ── 4. Cash Position Chart ──
+    const cashCtx = document.getElementById('cash-chart').getContext('2d');
+    const startCash = FA.startingCash || 0;
+    let cumCash = startCash;
+    const cashData = rows.map(r => {
+      cumCash += r.opIncome;
+      return { month: shortMonth(r.month), opIncome: r.opIncome, cash: cumCash, isActual: r.isActual };
+    });
+ 
+    const grantEndIdx = rows.findIndex(r => r.month === '2026-10'); // last DCED/Parks payment
+    const ssnwStartIdx = rows.findIndex(r => r.month === '2027-04');
+ 
+    new Chart(cashCtx, {
+      type: 'bar',
+      data: {
+        labels: cashData.map(d => d.month),
+        datasets: [
+          {
+            label: 'Operating Income',
+            type: 'bar',
+            data: cashData.map(d => d.opIncome),
+            backgroundColor: cashData.map(d => {
+              if (!d.isActual) return d.opIncome >= 0 ? '#1a7a4a40' : '#b03a2e40';
+              return d.opIncome >= 0 ? '#1a7a4a99' : '#b03a2e99';
+            }),
+            borderColor: cashData.map(d => d.opIncome >= 0 ? '#1a7a4a' : '#b03a2e'),
+            borderWidth: 1,
+            order: 2,
+          },
+          {
+            label: 'Cash Position',
+            type: 'line',
+            data: cashData.map(d => d.cash),
+            borderColor: '#2563eb',
+            backgroundColor: '#2563eb20',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointBackgroundColor: '#2563eb',
+            borderWidth: 2,
+            order: 1,
+          },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, color: '#9b9b96' } },
+          annotation: {
+            annotations: {
+              grantEnd: grantEndIdx >= 0 ? {
+                type: 'line',
+                xMin: grantEndIdx + 0.5, xMax: grantEndIdx + 0.5,
+                borderColor: '#b03a2e80', borderDash: [4,4], borderWidth: 2,
+                label: {
+                  display: true, content: 'Grants End', position: 'start',
+                  font: { size: 10, weight: 'bold' }, color: '#b03a2e',
+                  backgroundColor: '#b03a2e15', padding: 4
+                }
+              } : {},
+              ssnwStart: ssnwStartIdx >= 0 ? {
+                type: 'line',
+                xMin: ssnwStartIdx - 0.5, xMax: ssnwStartIdx - 0.5,
+                borderColor: '#d9770680', borderDash: [4,4], borderWidth: 2,
+                label: {
+                  display: true, content: 'SSNW Starts', position: 'start',
+                  font: { size: 10, weight: 'bold' }, color: '#d97706',
+                  backgroundColor: '#d9770615', padding: 4
+                }
+              } : {},
+            }
+          },
+          tooltip: {
+            callbacks: { label: ctx => ctx.dataset.label + ': ' + fmtFull$(ctx.parsed.y) }
+          }
+        },
+        scales: {
+          x: { ticks: { font: { size: 10 }, color: '#9b9b96' }, grid: { display: false } },
+          y: { ticks: { font: { size: 10 }, color: '#9b9b96', callback: v => fmt$(v) }, grid: { color: '#f0eee840' } },
+        }
+      }
+    });
+ 
+    // If no starting cash, show warning
+    if (!FA.startingCash) {
+      document.getElementById('cash-chart').parentNode.querySelector('.chart-sub').innerHTML +=
+        '<br><span style="color:#b03a2e">⚠ Starting cash not set — chart shows cumulative operating income only. Set FINANCIALS.forwardAssumptions.startingCash in financials_data.js.</span>';
+    }
+ 
+    financialsLoaded = true;
+    document.getElementById('fin-loading').style.display = 'none';
+    document.getElementById('fin-content').style.display = 'block';
+ 
+  } catch (err) {
+    console.error('Financials load error:', err);
+    document.getElementById('fin-loading').innerHTML =
+      `<div style="color:#b03a2e;font-size:13px">Could not load financials: ${err.message}</div>`;
+  }
+}
+ 
+// Table helper: section header row
+function sectionHeader(label, colCount) {
+  return `<tr><td colspan="${colCount + 1}" style="font-size:11px;font-weight:600;color:#6b6b66;padding:12px 0 4px;border-bottom:1px solid #f0eee8">${label}</td></tr>`;
+}
+ 
+// Table helper: data row
+function finRow(label, rows, getter, color, isDetail, isBold) {
+  const indent = isDetail ? 'padding-left:16px;font-size:11px;' : '';
+  const weight = isBold ? 'font-weight:600;' : '';
+  const border = isBold ? 'border-top:1px solid #e0ddd6;border-bottom:1px solid #e0ddd6;' : '';
+  const labelColor = color ? `color:${color};` : '';
+ 
+  let html = `<tr><td style="${indent}${weight}${labelColor}white-space:nowrap">${label}</td>`;
+  rows.forEach(r => {
+    const v = getter(r);
+    const bg = r.isActual ? '' : 'background:#f8f7f440;';
+    const negColor = v != null && v < 0 ? 'color:#b03a2e;' : '';
+    html += `<td style="text-align:right;font-size:11px;${weight}${border}${bg}${negColor}white-space:nowrap">${v != null ? fmtFull$(v) : '—'}</td>`;
+  });
+  html += '</tr>';
+  return html;
+}
+
 
 // ── Init ──
 async function init() {
