@@ -38,7 +38,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { table, fields, filter } = body;
+  const { table, fields, filter, base } = body;
   if (!table || !fields) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'table and fields required' }) };
   }
