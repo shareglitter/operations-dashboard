@@ -266,7 +266,7 @@
     <!-- ── Section 1: MRR Snapshot ── -->
     <div style="margin-bottom:24px">
       <h2 style="font-size:16px;font-weight:600;margin:0">MRR Snapshot</h2>
-      <p style="font-size:12px;color:#9b9b96;margin:4px 0 0">Current active subscribers · Live from Airtable · Per-billing-cycle amounts</p>
+      <p style="font-size:12px;color:#9b9b96;margin:4px 0 0">Current active subscribers · Live from Airtable · MRR is the Share component (Airtable <em>MRR (Share)</em>), normalized 13 cycles → 12 months; recurring donations are shown separately as Impact Fund</p>
     </div>
  
     <div id="mrr-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:32px"></div>
@@ -1250,7 +1250,7 @@ async function fetchMRRSnapshot() {
       coreSubs: null, coreShare: null,
       projectSubs: null, projectShare: null,
       totalSubs: null, totalShare: null,
-      totalMRR: est, coreMRR: est, projectMRR: null,
+      totalMRR: est, coreMRR: est, projectMRR: null, donationMRR: null,
       fallback: true,
       error: err.message
     };
@@ -1274,7 +1274,13 @@ async function renderFinancialsTab() {
       { label: 'Core MRR (normalized)', value: mrr.coreMRR != null ? fmtFull$(mrr.coreMRR) : '—', color: '#2563eb' },
       { label: 'Project Subscribers', value: mrr.projectSubs != null ? mrr.projectSubs.toLocaleString() : '—', color: '#6366f1' },
       { label: 'Project Share / Cycle', value: mrr.projectShare != null ? fmtFull$(mrr.projectShare) : '—', color: '#6366f1' },
+      { label: 'Project MRR (normalized)', value: mrr.projectMRR != null ? fmtFull$(mrr.projectMRR) : '—', color: '#2563eb' },
       { label: 'Total MRR (normalized)', value: mrr.totalMRR != null ? fmtFull$(mrr.totalMRR) : '—', color: '#2563eb' },
+      // Recurring neighbour donations (AT "MRR (Donation)"). Deliberately outside
+      // the Core/Project/Total MRR figures above, which are the Share component
+      // only, so they stay comparable to QB 4010 Subscription Income.
+      { label: 'Impact Fund MRR', value: mrr.donationMRR != null ? fmtFull$(mrr.donationMRR) : '—', color: '#d97706',
+        sub: 'Separate from Total — QB 4020' },
     ];
  
     // Use the shared .stat-label / .stat-value / .stat-sub classes so these match
