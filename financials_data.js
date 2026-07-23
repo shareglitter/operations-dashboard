@@ -133,9 +133,36 @@ const FINANCIALS = {
       '2027-11': { rev: 62500, gm: 35000 },
     },
 
-    // Starting cash position (checking + savings, end of June 2026)
-    // $40,126 checking + $116,228 savings = $156,354
-    startingCash: 156354,
+    // Starting cash position (end of June 2026, POST share buyback)
+    // Pre-buyback: $463K (end of May) → buyback ~$275K + bonuses + taxes → $197K
+    startingCash: 197000,
+
+    // ─── CASH ADJUSTMENTS (below-the-line items that hit cash) ───
+    // These are NOT in operating income but affect cash position.
+    // Negative = cash out, Positive = cash in.
+    cashAdjustments: {
+      '2026-07': [
+        { label: 'Unexpected insurance charges', amount: -22000 },
+      ],
+      '2026-08': [
+        { label: 'Video production (contracted)', amount: -12500 },
+      ],
+      '2026-09': [
+        { label: 'Estimated tax payment', amount: -20000 },
+        
+      ],
+      '2026-12': [
+        { label: 'Estimated tax payment', amount: -20000 },
+        { label: 'Legal fees (contracted)', amount: -12500 },
+      ],
+      '2027-04': [
+        { label: 'Tax return', amount: 61000 },
+      ],
+    },
+
+    // User's loose actual/expected cash numbers for validation:
+    // Jun: $197K, Jul: $194K, Aug: $213K, Sep: $208K,
+    // Oct: $203K, Nov: $183K, Dec: $144K
   },
 
   // ─── LABELS ───
