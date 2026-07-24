@@ -25,19 +25,43 @@ const CLEANS_TABLE = 'tblaDXbhz6DEcytgh';
 const CHURN_DAYS = 35;
 const BAG_MAP = { rare: 0.25, light: 0.5, medium: 0.75, heavy: 1.25, severe: 2.0 };
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Airtable's limit is 5 requests/second per base; breaching it returns 429 plus
+// a 30-second lockout on that base. The cleaning-log pull is ~500 sequential
+// pages, so we (a) space pages out to stay under the ceiling and (b) retry
+// politely on 429/5xx instead of aborting the whole monthly refresh.
+const THROTTLE_MS = 220;   // ~4.5 req/s, safely under the 5 req/s ceiling
+const MAX_RETRIES = 5;
+
+async function fetchAirtable(url) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (res.ok) return res.json();
+    // 429 = rate limited (honor Retry-After / 30s box); 5xx = transient. Back off.
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+      const retryAfter = parseInt(res.headers.get('retry-after') || '', 10);
+      const wait = Number.isFinite(retryAfter) ? retryAfter * 1000 : Math.min(30000, 1000 * 2 ** attempt);
+      console.log(`  ⏳ AT ${res.status} — waiting ${Math.round(wait / 1000)}s (retry ${attempt + 1}/${MAX_RETRIES})`);
+      await sleep(wait);
+      continue;
+    }
+    throw new Error(`AT ${res.status}: ${await res.text()}`);
+  }
+}
+
 async function fetchAll(tableId, fields, filter) {
   const fieldParams = fields.map(f => `fields[]=${encodeURIComponent(f)}`).join('&');
   const filterParam = filter ? `&filterByFormula=${encodeURIComponent(filter)}` : '';
   let records = [], offset = null, page = 0;
   do {
     const url = `https://api.airtable.com/v0/${BASE}/${tableId}?${fieldParams}&pageSize=100${filterParam}${offset ? '&offset=' + offset : ''}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
-    if (!res.ok) throw new Error(`AT ${res.status}: ${await res.text()}`);
-    const data = await res.json();
+    const data = await fetchAirtable(url);
     records = records.concat(data.records);
     offset = data.offset;
     page++;
     if (page % 50 === 0) console.log(`  ...${records.length} records so far`);
+    if (offset) await sleep(THROTTLE_MS); // stay under 5 req/s between pages
   } while (offset);
   return records;
 }

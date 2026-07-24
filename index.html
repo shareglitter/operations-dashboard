@@ -346,7 +346,34 @@ function xLabels(data) {
 // ── AT API fetch (through Netlify function proxy) ──
 // Single entry point so every caller reports the *actual* Airtable error.
 // A bare "Proxy 422" tells you nothing; Airtable's body names the bad field/formula.
+//
+// Tiny localStorage cache: a reload or reopen within the TTL reuses the last
+// result instead of re-pulling every record from Airtable. The underlying data
+// changes at most a few times a day, so a short TTL is invisible to the viewer
+// and spares the API a full re-fetch on every page load. Only *successful*
+// responses are cached (failures throw before we reach cacheSet), so a transient
+// error never gets pinned for the whole TTL. Keyed by the exact request payload.
+const AT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 min
+
+function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { t, v } = JSON.parse(raw);
+    if (Date.now() - t > AT_CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    return v;
+  } catch { return null; } // private mode / disabled storage — just skip the cache
+}
+
+function cacheSet(key, v) {
+  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), v })); } catch { /* quota/private mode — skip */ }
+}
+
 async function atProxy(payload) {
+  const cacheKey = 'at:' + JSON.stringify(payload);
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const res = await fetch('/.netlify/functions/at-proxy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -361,6 +388,8 @@ async function atProxy(payload) {
     const detail = (data && data.error) || raw || '(empty response)';
     throw new Error(`Proxy ${res.status} — table "${payload.table}" — ${detail}`);
   }
+
+  cacheSet(cacheKey, data);
   return data;
 }
 
