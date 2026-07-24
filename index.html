@@ -244,7 +244,7 @@
       <div class="chart-sub">Goal vs Actual by month · Green = met or beat goal · Red = missed</div>
       <div style="overflow-x:auto" id="metrics-table-wrap"></div>
       <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">
-        Auto-filled metrics: Cleaning Health %, Funded Blocks, Block Growth %, Monthly Churn %. Manual: Cleaner Churn, Partnerships, Grants $, Backlog.
+        Auto-filled metrics: Cleaning Health %, Funded Blocks, Block Growth %, Monthly Churn %. Manual: Cleaner Churn, Partnerships, Grants $, Backlog, Active Subscriptions (monthly snapshot).
       </div>
     </div>
  
@@ -966,16 +966,21 @@ const OPSHUB_BASE = 'app87a9ZvrVJZiFuZ';
 const METRICS_TABLE = 'tblqg4SxBkQoliQrn';
 const INITIATIVES_TABLE = 'tblBvYsdfCuRKj4rF';
  
+// NOTE: the table/card renderers match OpsHub columns by field NAME
+// (`key.startsWith(label) && includes('Goal'/'Actual')`), not by these fldXXXX ids —
+// the ids are documentation. A metric shows in the tracking table iff goalF is truthy.
+// equivs + activeSubs are kept LAST so both new Goal/Actual pairs render at the right.
 const METRIC_DEFS = [
   { key: 'health', label: 'Cleaning Health %', goalF: 'fldu2knH4W6DnmyRw', actualF: 'fldTbo6vWjFzFfYJF', fmt: v => v != null ? v + '%' : '—', higher: true, color: '#1a7a4a' },
   { key: 'funded', label: 'Funded Blocks', goalF: 'fldDpCX55LDhCxgyq', actualF: 'fldBdE2k2VQPZ6jTH', fmt: v => v != null ? v.toLocaleString() : '—', higher: true, color: '#1a7a4a' },
-  { key: 'equivs', label: 'Cleaning Equivalents', goalF: null, actualF: 'fldlNXgZWFiOPcOSG', fmt: v => v != null ? v.toLocaleString() : '—', higher: true, color: '#2563eb' },
   { key: 'growth', label: 'Block Growth %', goalF: 'fldOfVdoTrEEFB2El', actualF: 'fldOyQ9IKcR5rwuzg', fmt: v => v != null ? v + '%' : '—', higher: true, color: '#2563eb' },
   { key: 'churn', label: 'Monthly Churn %', goalF: 'fldNSPC0dwcTp7egf', actualF: 'fld7zSKJMrgAzrCZS', fmt: v => v != null ? v + '%' : '—', higher: false, color: '#b03a2e' },
   { key: 'cleaner', label: 'Cleaner Yearly Churn %', goalF: 'fldS1PgRyN5iMwCYa', actualF: 'fldUH4V19NeLKB9Ag', fmt: v => v != null ? v + '%' : '—', higher: false, color: '#d97706' },
   { key: 'partners', label: 'Partnerships', goalF: 'fldcyPdAVHLVp0cZV', actualF: 'fldmm2N9eEjCdjf77', fmt: v => v != null ? v.toString() : '—', higher: true, color: '#8b5cf6' },
   { key: 'grants', label: 'Grants $', goalF: 'fldUZPACTgSIlXO1S', actualF: 'fldaNhpAeU1NgkWbN', fmt: v => v != null ? '$' + v.toLocaleString() : '—', higher: true, color: '#8b5cf6' },
   { key: 'backlog', label: 'Backlog Reduced %', goalF: 'fld5eLtDBOCtQ5HrF', actualF: 'fldYWLVYI8njYs4rg', fmt: v => v != null ? v + '%' : '—', higher: true, color: '#6b6b66' },
+  { key: 'equivs', label: 'Cleaning Equivalents', goalF: true, actualF: 'fldlNXgZWFiOPcOSG', fmt: v => v != null ? v.toLocaleString() : '—', higher: true, color: '#2563eb' },
+  { key: 'activeSubs', label: 'Active Subscriptions', goalF: true, actualF: true, fmt: v => v != null ? v.toLocaleString() : '—', higher: true, color: '#2563eb' },
 ];
  
 let metricsLoaded = false;
@@ -991,19 +996,36 @@ async function renderMetricsTab() {
   try {
     // Fetch monthly metrics
     const metricFields = ['Name', 'Cleaning Health % - Goal', 'Cleaning Health % - Actual',
-      'Funded Blocks - Goal', 'Funded Blocks - Actual', 'Cleaning Equivalents',
+      'Funded Blocks - Goal', 'Funded Blocks - Actual',
       'Monthly Churn % - Goal', 'Monthly Churn % - Actual',
       'Block Growth % - Goal', 'Block Growth % - Actual',
       'Cleaner Churn % - Goal', 'Cleaner Churn % - Actual',
       'Partnerships - Goal', 'Partnerships - Actual',
       'Grants $ - Goal', 'Grants $ - Actual',
-      'Backlog Reduced % - Goal', 'Backlog Reduced % - Actual'];
+      'Backlog Reduced % - Goal', 'Backlog Reduced % - Actual',
+      'Cleaning Equivalents - Goal', 'Cleaning Equivalents - Actual',
+      'Active Subscriptions - Goal', 'Active Subscriptions - Actual'];
     const metricRecords = await fetchOpsHub(METRICS_TABLE, metricFields);
  
     // Fetch initiatives
     const initRecords = await fetchOpsHub(INITIATIVES_TABLE,
       ['Name', 'KPI', 'KPI (Goal)', 'KPI (Current)', '# of Projects Active', '# of Projects Total']);
- 
+
+    // Live count of currently-active subscriptions (cleaning base, not OpsHub) — a
+    // reference for whoever fills the monthly Active Subscriptions snapshot in OpsHub.
+    // Guarded: a failure here just hides the readout, it must never break the tab.
+    let liveActiveSubs = null;
+    try {
+      const subData = await atProxy({
+        table: 'Active Subscriptions',
+        fields: ['Contribution Status'],
+        filter: "{Contribution Status}='Active'"
+      });
+      liveActiveSubs = subData.count;
+    } catch (e) {
+      console.warn('Live active-subscription count unavailable:', e.message);
+    }
+
     // Parse metrics into rows sorted by month
     const rows = metricRecords.map(r => r.fields).sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
  
@@ -1040,13 +1062,13 @@ async function renderMetricsTab() {
  
     // Render monthly tracking table
     const tableDiv = document.getElementById('metrics-table-wrap');
-    const visibleMetrics = METRIC_DEFS.filter(m => m.goalF); // skip cleaning equivalents from table (it's goal-less)
+    const visibleMetrics = METRIC_DEFS.filter(m => m.goalF); // every goal-bearing metric, incl. Clean Equiv + Active Subs
     let html = '<table class="data-table"><thead><tr><th>Month</th>';
     visibleMetrics.forEach(m => { html += `<th colspan="2" style="text-align:center;border-bottom:2px solid ${m.color}40">${m.label}</th>`; });
-    html += `<th style="text-align:center">Clean Equiv</th></tr>`;
+    html += '</tr>';
     html += '<tr><th></th>';
     visibleMetrics.forEach(() => { html += '<th style="text-align:center;font-size:9px;color:#9b9b96">Goal</th><th style="text-align:center;font-size:9px;color:#9b9b96">Actual</th>'; });
-    html += '<th style="text-align:center;font-size:9px;color:#9b9b96">Actual</th></tr></thead><tbody>';
+    html += '</tr></thead><tbody>';
  
     rows.forEach(row => {
       html += `<tr><td style="font-weight:500">${shortM(row.Name || '')}</td>`;
@@ -1066,13 +1088,20 @@ async function renderMetricsTab() {
         html += `<td style="text-align:center;color:#9b9b96">${goal != null ? md.fmt(goal) : '—'}</td>`;
         html += `<td style="text-align:center;font-weight:500;${cellColor}">${actual != null ? md.fmt(actual) : '—'}</td>`;
       });
-      // Cleaning equivalents
-      const equiv = row['Cleaning Equivalents'];
-      html += `<td style="text-align:center;font-weight:500">${equiv != null ? equiv.toLocaleString() : '—'}</td>`;
       html += '</tr>';
     });
- 
+
     html += '</tbody></table>';
+
+    // Live active-subscriptions readout — reference for filling the monthly snapshot
+    if (liveActiveSubs != null) {
+      html += `<div style="font-size:11px;color:#6b6b66;margin-top:10px">
+        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#1a7a4a;margin-right:5px"></span>
+        Live now: <strong>${liveActiveSubs.toLocaleString()}</strong> active subscriptions
+        <span style="color:#9b9b96">— use to fill this month's Active Subscriptions snapshot in OpsHub</span>
+      </div>`;
+    }
+
     tableDiv.innerHTML = html;
  
     // Render initiatives list
