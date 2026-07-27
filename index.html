@@ -193,7 +193,7 @@
     </div>
 
     <div class="chart-card">
-      <div class="chart-title">Subscriber Tier vs Cleaning Level — Core Blocks</div>
+      <div class="chart-title">Subscriber Group vs Cleaning Level — Core Blocks</div>
       <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count</div>
       <div id="heatmap-core"></div>
       <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">Counts are straight block counts (not weighted by multiplier). Excludes blocks with formula errors or incomplete setup.</div>
@@ -946,7 +946,7 @@ function renderHeatmap(containerId, data) {
 
   // Short labels for columns
   const colLabels = ['Weekly (100%)', '3/4 Cycle (75%)', '2/4 Cycle (50%)', '1/4 Cycle (25%)', 'Not Funded (0%)'];
-  const rowLabels = ['SubTier1: 10+ subs', 'SubTier2: 5-9 subs', 'SubTier3: 1-4 subs', 'SubTier4: 0 subs'];
+  const rowLabels = ['Subscriber Group A: 10+ subs', 'Subscriber Group B: 5-9 subs', 'Subscriber Group C: 1-4 subs', 'Subscriber Group F: 0 subs'];
 
   let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
   // Header
