@@ -320,6 +320,10 @@ const BLOCKS_TABLE = 'tblssvtXzgL200hSi';
 const CLEANS_TABLE = 'tblaDXbhz6DEcytgh';
 const CHURN_DAYS = 35;
 const BAG_MAP = { rare:0.25, light:0.5, medium:0.75, heavy:1.25, severe:2.0 };
+// Grant-funded projects (the Safe Steps programs). Every other value of the
+// Blocks `Projects` select — Area32, Philly Safe, TCB South St, WPNA — is a
+// normal project. Keep in sync with GRANT_PROJECTS in refresh.js.
+const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 
 // ── State ──
 let allCleans = [...HIST_CLEANS];
@@ -413,14 +417,17 @@ async function fetchCurrentMonthCleans() {
       ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris'], filter);
 
     let core = 0, proj = 0, grant = 0, rev = 0, cogs = 0, bags = 0, trash_bags = 0, debris_bags = 0;
+    // `Project` / `Multiplier` are lookups from Blocks — Airtable returns those
+    // as arrays (["SSNE"], [1.5]), so unwrap before comparing / multiplying.
+    const one = v => Array.isArray(v) ? (v.length ? v[0] : null) : (v === undefined ? null : v);
     for (const r of records) {
       const f = r.fields;
       if (!f['Date and Time']) continue;
-      const mult = f['Multiplier'] || 1;
-      const payout = f['Payout'] || 25;
-      const project = f['Project'] || null;
+      const mult = one(f['Multiplier']) || 1;
+      const payout = one(f['Payout']) || 25;
+      const project = one(f['Project']);
 
-      if (project === 'SSNE' || project === 'SSW') grant++;
+      if (GRANT_PROJECTS.has(project)) grant++;
       else if (project) proj++;
       else core++;
 

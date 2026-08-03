@@ -24,6 +24,10 @@ const BLOCKS_TABLE = 'tblssvtXzgL200hSi';
 const CLEANS_TABLE = 'tblaDXbhz6DEcytgh';
 const CHURN_DAYS = 35;
 const BAG_MAP = { rare: 0.25, light: 0.5, medium: 0.75, heavy: 1.25, severe: 2.0 };
+// Grant-funded projects (the Safe Steps programs). Every other value of the
+// Blocks `Projects` select — Area32, Philly Safe, TCB South St, WPNA — is a
+// normal project.
+const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -72,10 +76,17 @@ function normScore(val) {
   return BAG_MAP[name] || 0;
 }
 
+// Cleaning Log's `Project` and `Multiplier` are lookups from Blocks, and Airtable's
+// REST API returns lookup fields as arrays (["SSNE"], [1.5]) — never bare scalars.
+// Unwrap to the first value so equality checks and arithmetic behave.
+function one(val) {
+  return Array.isArray(val) ? (val.length ? val[0] : null) : (val === undefined ? null : val);
+}
+
 async function buildCleaningSeries() {
   console.log('Fetching cleaning log...');
   const records = await fetchAll(CLEANS_TABLE,
-    ['Date and Time', 'Projects', 'Multiplier', 'Payout', 'Trash', 'Debris']);
+    ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris']);
   console.log(`  ${records.length} cleaning records`);
 
   const monthly = {};
@@ -83,14 +94,14 @@ async function buildCleaningSeries() {
     const f = r.fields;
     if (!f['Date and Time']) continue;
     const month = f['Date and Time'].slice(0, 7);
-    const mult = f['Multiplier'] || 1;
-    const payout = f['Payout'] || 25;
-    const proj = f['Projects'] || null;
+    const mult = one(f['Multiplier']) || 1;
+    const payout = one(f['Payout']) || 25;
+    const proj = one(f['Project']);
 
     if (!monthly[month]) monthly[month] = { core: 0, project: 0, grant: 0, rev: 0, cogs: 0, trash_bags: 0, debris_bags: 0 };
     const m = monthly[month];
 
-    if (proj === 'SSNE' || proj === 'SSW') m.grant++;
+    if (GRANT_PROJECTS.has(proj)) m.grant++;
     else if (proj) m.project++;
     else m.core++;
 
