@@ -13,12 +13,16 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    # The job pushes the regenerated data.js back to main. Without this the
+    # default GITHUB_TOKEN is read-only and `git push` dies with exit 128.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Run refresh script
         env:
