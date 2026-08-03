@@ -34,5 +34,24 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data.js health_data.js
-          # Only commit if data.js actually changed
-          git diff --cached --quiet || (git commit -m "Monthly data refresh $(date +%Y-%m)" && git push)
+
+          # Only commit if the data actually changed
+          if git diff --cached --quiet; then
+            echo "No data changes — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Monthly data refresh $(date +%Y-%m)"
+
+          # A bare push is a non-fast-forward if anything landed on main since
+          # checkout, or if this is a re-run replaying an older commit SHA.
+          # Rebase our data-only commit onto the current tip and retry.
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              echo "Pushed data refresh."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed — retrying in 5s."
+            sleep 5
+          done
+          echo "Could not push after 3 attempts."
+          exit 1
