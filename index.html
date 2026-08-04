@@ -342,7 +342,10 @@ const sumF = (arr, k) => arr.reduce((s, d) => s + (d[k] || 0), 0);
 function xLabels(data) {
   return data.map((d, i) => {
     const mo = parseInt(d.month.split('-')[1]);
-    if (data.length > 24) return (mo === 1 || mo === 7) ? shortM(d.month) : '';
+    // Past 24 months the axis gets crowded, so label only Jan/Jul — but always
+    // label the newest month, since that's the bar being read. (Without this the
+    // current month is unlabelled for 5 months of every 6.)
+    if (data.length > 24) return (i === data.length - 1 || mo === 1 || mo === 7) ? shortM(d.month) : '';
     return shortM(d.month);
   });
 }
