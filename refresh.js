@@ -29,6 +29,13 @@ const BAG_MAP = { rare: 0.25, light: 0.5, medium: 0.75, heavy: 1.25, severe: 2.0
 // normal project.
 const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 
+// President's KPIs (OpsHub → Monthly Metrics). A "core" block is anything not
+// project/grant funded; it counts as funded once its cleaning level reaches 1/4
+// (0.25 = once a month; 1.0 = weekly).
+const CORE_FUNDING = ['Resident', 'Commercial / Property Management', 'Community'];
+const FUNDED_MIN = 0.25;
+const FUNDING_LEVEL = 'Funding Level (with Override and Cap)';
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Airtable's limit is 5 requests/second per base; breaching it returns 429 plus
@@ -170,13 +177,18 @@ async function buildBlockSeries() {
       }
     });
 
-    const churned = idx > 0 ? [...prevActive].filter(i => !curActive.has(i)).length : 0;
+    // Split churn by type: the president's Monthly Churn % is a core-block rate,
+    // so a month where project blocks roll off shouldn't read as core churn.
+    const churnedIdx = idx > 0 ? [...prevActive].filter(i => !curActive.has(i)) : [];
+    const churned = churnedIdx.length;
+    const churnedCore = churnedIdx.filter(i => !blocks[i].isProject).length;
     prevActive = curActive;
 
     return {
       month: `${y}-${String(m).padStart(2, '0')}`,
       core_active: coreA, proj_active: projA, total_active: coreA + projA,
-      new_core: newC, new_proj: newP, churned, net: (newC + newP) - churned
+      new_core: newC, new_proj: newP, churned, churned_core: churnedCore,
+      net: (newC + newP) - churned
     };
   });
 }
@@ -219,7 +231,73 @@ const HIST_BLOCKS = ${JSON.stringify(blocksFinal)};
   // Build health data (block tier snapshot)
   await buildHealthData(now);
 
+  // President's KPIs — printed for manual entry into OpsHub, never written
+  await buildMonthlyMetrics(blocksFinal);
+
   console.log('\nDeploy: git add data.js health_data.js && git commit -m "monthly refresh" && git push');
+}
+
+// ── President's KPIs → OpsHub "Monthly Metrics" ──────────────────────────────
+//
+// Prints the metrics whose values are derivable from Airtable so they can be
+// pasted into the OpsHub row for the month. Deliberately read-only: nothing is
+// written back, so a bad computation can never corrupt the KPI table.
+//
+// NB: Funded Blocks / Cleaning Health / Cleaning Equivalents are point-in-time
+// snapshots of the Blocks table as it stands *right now* — they can't be
+// recomputed for a past month. Run this shortly after month end.
+async function buildMonthlyMetrics(blocksFinal) {
+  console.log('\nFetching funding levels for KPIs...');
+  const records = await fetchAll(BLOCKS_TABLE, ['Funding Type', FUNDING_LEVEL]);
+
+  const funded = records.filter(r => {
+    const f = r.fields;
+    return CORE_FUNDING.includes(f['Funding Type']) && (one(f[FUNDING_LEVEL]) || 0) >= FUNDED_MIN;
+  });
+  const levels = funded.map(r => one(r.fields[FUNDING_LEVEL]) || 0);
+  const levelSum = levels.reduce((a, b) => a + b, 0);
+
+  const fundedBlocks = funded.length;
+  // Level is a fraction where 1.0 = weekly, so the mean is already the health %.
+  const cleaningHealth = fundedBlocks ? Math.round(levelSum / fundedBlocks * 1000) / 10 : 0;
+  // Weekly = 4 cleans per billing cycle, 3/4 = 3, and so on.
+  const cleaningEquivalents = Math.round(levelSum * 4);
+
+  // Live count of active subscriptions (same source the dashboard's Metrics tab
+  // shows as a reference). Guarded — it must not sink the whole refresh.
+  let activeSubs = null;
+  try {
+    const subs = await fetchAll(encodeURIComponent('Active Subscriptions'),
+      ['Contribution Status'], "{Contribution Status}='Active'");
+    activeSubs = subs.length;
+  } catch (e) {
+    console.log(`  ⚠ Active Subscriptions unavailable: ${e.message}`);
+  }
+
+  const cur = blocksFinal[blocksFinal.length - 1];
+  const prev = blocksFinal[blocksFinal.length - 2];
+  const pct = (n, d) => d ? Math.round(n / d * 1000) / 10 : 0;
+  const churnCore = prev ? pct(cur.churned_core, prev.core_active) : 0;
+  const churnAll = prev ? pct(cur.churned, prev.core_active) : 0;
+  const growth = prev ? pct(cur.core_active - prev.core_active, prev.core_active) : 0;
+
+  console.log(`\n${'='.repeat(58)}`);
+  console.log(`OpsHub → Monthly Metrics — paste into row "${cur.month}"`);
+  console.log('='.repeat(58));
+  console.log(`  Funded Blocks - Actual .......... ${fundedBlocks}`);
+  console.log(`  Cleaning Health % - Actual ...... ${cleaningHealth}`);
+  console.log(`  Cleaning Equivalents - Actual ... ${cleaningEquivalents}`);
+  console.log(`  Block Growth % - Actual ......... ${growth}`);
+  console.log(`  Monthly Churn % - Actual ........ ${churnCore}`);
+  if (activeSubs !== null) console.log(`  Active Subscriptions - Actual ... ${activeSubs}`);
+  console.log('\n  Still manual: Cleaner Churn %, Partnerships, Grants $, Backlog Reduced %');
+  console.log(`\n  Context — core blocks ${prev ? prev.core_active : '?'} → ${cur.core_active}, ` +
+    `churned ${cur.churned_core} core of ${cur.churned} total`);
+  if (churnAll !== churnCore) {
+    console.log(`  (all-block churn would read ${churnAll}% — project blocks rolling off)`);
+  }
+  console.log(`  Block-state metrics above are as of ${new Date().toISOString().slice(0, 10)}, not month end.`);
+  console.log('='.repeat(58));
 }
 
 async function buildHealthData(now) {
