@@ -136,15 +136,24 @@ async function buildCleaningSeries() {
 
 async function buildBlockSeries() {
   console.log('Fetching block data...');
+  // Last clean comes from the rollup (MAX over linked Cleaning Log rows): the
+  // automation-filled `Last Clean Date` matched blocks by *substring* of Block
+  // Code, so a clean on 2300South also stamped 2200-2300South, leaving the real
+  // block looking dormant and its superset twin looking immortal.
+  //
+  // First clean deliberately stays on the automation field. ~13 blocks were
+  // backfilled to 2022-10-06 with no linked cleaning rows that old, so the
+  // rollup would erase them from four years of history and re-book them as new
+  // in the month they were first linked. See CLAUDE.md.
   const records = await fetchAll(BLOCKS_TABLE,
-    ['First Clean Date', 'Last Clean Date', 'Funding Type', 'Projects']);
+    ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects']);
   console.log(`  ${records.length} block records`);
 
   const blocks = records
-    .filter(r => r.fields['First Clean Date'] && r.fields['Last Clean Date'])
+    .filter(r => r.fields['First Clean Date'] && r.fields['Last Clean Date [Rollup]'])
     .map(r => ({
       first: new Date(r.fields['First Clean Date']),
-      last: new Date(r.fields['Last Clean Date']),
+      last: new Date(r.fields['Last Clean Date [Rollup]']),
       isProject: r.fields['Funding Type'] === 'Project' || !!r.fields['Projects']
     }));
 

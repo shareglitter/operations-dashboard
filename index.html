@@ -464,16 +464,18 @@ async function fetchCurrentMonthCleans() {
 // ── Compute block series from live AT data ──
 async function fetchBlockData() {
   try {
+    // Last clean from the rollup, first clean from the automation field — see
+    // the note in refresh.js buildBlockSeries(); the two must stay in sync.
     const records = await fetchAT(BLOCKS_TABLE,
-      ['First Clean Date', 'Last Clean Date', 'Funding Type', 'Projects']);
+      ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects']);
 
     const blocks = [];
     for (const r of records) {
       const f = r.fields;
-      if (!f['First Clean Date'] || !f['Last Clean Date']) continue;
+      if (!f['First Clean Date'] || !f['Last Clean Date [Rollup]']) continue;
       blocks.push({
         first: new Date(f['First Clean Date']),
-        last: new Date(f['Last Clean Date']),
+        last: new Date(f['Last Clean Date [Rollup]']),
         isProject: (f['Funding Type'] === 'Project') || !!f['Projects']
       });
     }

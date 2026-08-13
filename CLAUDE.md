@@ -106,6 +106,29 @@ Still manual: `Cleaner Churn %` (needs a Cleaners table), `Partnerships`,
 The three block-state metrics are **snapshots of Blocks as it stands right now**,
 not as of month end — they cannot be back-computed. Run the refresh promptly.
 
+## Block dates: why first and last come from different fields
+
+`buildBlockSeries` reads **`First Clean Date`** (automation-filled) but
+**`Last Clean Date [Rollup]`** (a MAX rollup over linked Cleaning Log rows).
+That asymmetry is deliberate.
+
+The automation `New Cleaning Log: Last Clean Date & Send Email Notification`
+found the block via *Block Code contains …*, so a clean on `2300South` also
+stamped `2200-2300South`. Every such pair left one block looking dormant (it
+churned in the dashboard while being cleaned normally) and its superset twin
+looking immortal. The match was fixed in Aug 2026, but 38 blocks still carry
+bad dates; the rollup is immune by construction.
+
+`First Clean Date` stays on the automation field because ~13 blocks were
+backfilled to **2022-10-06** with no linked cleaning rows that old (the
+`800S12th` / `1100Christian` / `1200Catharine` cohort). Switching it to the
+rollup erases them from 45 months of history and re-books them as new in the
+month they were first linked — a fake +12 onboarding spike in Jul 2026.
+Resolve those blocks' linkage before considering the switch.
+
+Note the rollup renders in **UTC**; set its field formatting to
+America/New_York or ~80 blocks shift by a day.
+
 ## Next steps / deferred
 
 **Deferred: single-request current-month summary (rollup).** `fetchCurrentMonthCleans`
