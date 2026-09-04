@@ -43,6 +43,7 @@ scale.
 
 Token lives in two places, never in source: **Netlify env var** (proxy runtime) and
 **GitHub secret** `AIRTABLE_TOKEN` (monthly refresh). Rotate both together.
+Optional second GitHub secret: `SLACK_WEBHOOK_URL` — see "President's KPIs".
 
 ## Airtable API footprint
 
@@ -86,6 +87,14 @@ intention, not a fact: `refresh.js` only ever read the cleaning base.
 `buildMonthlyMetrics()` now closes most of that gap by **printing** the derivable
 values at the end of a refresh, for manual paste into the month's row. It stays
 read-only on purpose — a bad computation must never corrupt the president's KPIs.
+
+Nobody reads the Actions log, so the same block is also **posted to Slack** via
+`postToSlack()` when the `SLACK_WEBHOOK_URL` secret is set (a Slack Incoming
+Webhook; add it under GitHub → Settings → Secrets → Actions, and pass it in the
+workflow env — already wired). Without the secret it just prints. The Slack post
+is best-effort and never fails the refresh. Whoever maintains OpsHub pastes the
+values into the month's row; **until that happens the Metrics tab keeps showing
+the previous month**, because it picks the latest row with an Actual.
 
 Definitions (reverse-engineered from the June 2026 row and confirmed with the
 president). A **core** block is `Funding Type` ∈ Resident / Community /

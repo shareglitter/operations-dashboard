@@ -290,23 +290,62 @@ async function buildMonthlyMetrics(blocksFinal) {
   const churnAll = prev ? pct(cur.churned, prev.core_active) : 0;
   const growth = prev ? pct(cur.core_active - prev.core_active, prev.core_active) : 0;
 
+  const kpis = [
+    ['Funded Blocks - Actual', fundedBlocks],
+    ['Cleaning Health % - Actual', cleaningHealth],
+    ['Cleaning Equivalents - Actual', cleaningEquivalents],
+    ['Block Growth % - Actual', growth],
+    ['Monthly Churn % - Actual', churnCore],
+  ];
+  if (activeSubs !== null) kpis.push(['Active Subscriptions - Actual', activeSubs]);
+
+  const manual = 'Still manual: Cleaner Churn %, Partnerships, Grants $, Backlog Reduced %';
+  const context = [
+    `Context — core blocks ${prev ? prev.core_active : '?'} → ${cur.core_active}, ` +
+      `churned ${cur.churned_core} core of ${cur.churned} total`,
+    churnAll !== churnCore ? `(all-block churn would read ${churnAll}% — project blocks rolling off)` : null,
+    `Block-state metrics above are as of ${new Date().toISOString().slice(0, 10)}, not month end.`,
+  ].filter(Boolean);
+
   console.log(`\n${'='.repeat(58)}`);
   console.log(`OpsHub → Monthly Metrics — paste into row "${cur.month}"`);
   console.log('='.repeat(58));
-  console.log(`  Funded Blocks - Actual .......... ${fundedBlocks}`);
-  console.log(`  Cleaning Health % - Actual ...... ${cleaningHealth}`);
-  console.log(`  Cleaning Equivalents - Actual ... ${cleaningEquivalents}`);
-  console.log(`  Block Growth % - Actual ......... ${growth}`);
-  console.log(`  Monthly Churn % - Actual ........ ${churnCore}`);
-  if (activeSubs !== null) console.log(`  Active Subscriptions - Actual ... ${activeSubs}`);
-  console.log('\n  Still manual: Cleaner Churn %, Partnerships, Grants $, Backlog Reduced %');
-  console.log(`\n  Context — core blocks ${prev ? prev.core_active : '?'} → ${cur.core_active}, ` +
-    `churned ${cur.churned_core} core of ${cur.churned} total`);
-  if (churnAll !== churnCore) {
-    console.log(`  (all-block churn would read ${churnAll}% — project blocks rolling off)`);
-  }
-  console.log(`  Block-state metrics above are as of ${new Date().toISOString().slice(0, 10)}, not month end.`);
+  kpis.forEach(([k, v]) => console.log(`  ${(k + ' ').padEnd(32, '.')} ${v}`));
+  console.log(`\n  ${manual}\n`);
+  context.forEach(c => console.log(`  ${c}`));
   console.log('='.repeat(58));
+
+  await postToSlack(
+    `*OpsHub → Monthly Metrics — paste into row \`${cur.month}\`*\n` +
+    kpis.map(([k, v]) => `•  ${k}: *${v}*`).join('\n') +
+    `\n\n_${manual}_\n_${context.join(' ')}_`
+  );
+}
+
+// ── Slack notification ───────────────────────────────────────────────────────
+//
+// Optional. When SLACK_WEBHOOK_URL is set (a Slack "Incoming Webhook"; GitHub
+// secret of the same name), the KPI block above is posted there so whoever
+// maintains OpsHub sees it without opening the Actions log. Never fatal: by the
+// time this runs the data files are already written, and a missing paste
+// reminder shouldn't fail the refresh.
+async function postToSlack(text) {
+  const url = process.env.SLACK_WEBHOOK_URL;
+  if (!url) {
+    console.log('\n  (SLACK_WEBHOOK_URL not set — KPIs printed only, not posted to Slack)');
+    return;
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    console.log('\n  ✅ KPIs posted to Slack');
+  } catch (e) {
+    console.log(`\n  ⚠ Slack post failed: ${e.message}`);
+  }
 }
 
 async function buildHealthData(now) {

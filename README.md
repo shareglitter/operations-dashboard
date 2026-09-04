@@ -50,6 +50,10 @@ gh repo create glitter-ops-dashboard --private --source=. --push
 **Automatic (recommended):** The GitHub Action runs on the 2nd of each month. It pulls all data from Airtable, rebuilds data.js, and commits. Netlify auto-deploys.
 
 Setup: Add your Airtable token as a GitHub secret named `AIRTABLE_TOKEN`.
+Optional: add a Slack Incoming Webhook URL as a GitHub secret named `SLACK_WEBHOOK_URL`
+and the refresh posts the president's KPIs (Funded Blocks, Cleaning Health %, etc.) to
+that channel for manual paste into OpsHub → Monthly Metrics. Without it they only
+appear in the Actions log.
 
 **Manual:** Run locally if needed:
 ```bash

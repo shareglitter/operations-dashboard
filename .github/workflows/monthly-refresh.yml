@@ -27,6 +27,9 @@ jobs:
       - name: Run refresh script
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          # Optional: Slack Incoming Webhook. If set, the president's KPIs are
+          # posted to Slack for manual paste into OpsHub → Monthly Metrics.
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: node refresh.js
 
       - name: Commit and push updated data
