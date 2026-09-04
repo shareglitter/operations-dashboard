@@ -22,7 +22,10 @@ if (!TOKEN) {
 const BASE = 'appzuuUtAQVDg0YW1';
 const BLOCKS_TABLE = 'tblssvtXzgL200hSi';
 const CLEANS_TABLE = 'tblaDXbhz6DEcytgh';
-const CHURN_DAYS = 35;
+// A block is active in a month if its last clean falls within this many days
+// of month end. 42 (not 35) so a once-every-4-weeks block survives a two-week
+// slip; a weekly block six weeks dark is churned under either number.
+const CHURN_DAYS = 42;
 const BAG_MAP = { rare: 0.25, light: 0.5, medium: 0.75, heavy: 1.25, severe: 2.0 };
 // Grant-funded projects (the Safe Steps programs). Every other value of the
 // Blocks `Projects` select — Area32, Philly Safe, TCB South St, WPNA — is a
@@ -35,6 +38,22 @@ const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 const CORE_FUNDING = ['Resident', 'Commercial / Property Management', 'Community'];
 const FUNDED_MIN = 0.25;
 const FUNDING_LEVEL = 'Funding Level (with Override and Cap)';
+
+// Block growth splits blocks three ways. `Funding Type = Project` is a true
+// project/grant block. A neighbor-funded block that also carries a `Projects`
+// tag (Area32, TCB South St, WPNA…) is "sponsored": it sits between core and
+// project, so it gets its own line instead of being lumped in with grants.
+// Everything else is core. The president's growth/churn KPIs use core only.
+// Blocks flagged `Exclude from Dashboard` (placeholders / test blocks such as
+// ImpactFund and 1300Walnut) are dropped from every block-level series and KPI.
+const EXCLUDE_FLAG = 'Exclude from Dashboard';
+const keepBlock = r => !r.fields[EXCLUDE_FLAG];
+
+function blockKind(f) {
+  if (f['Funding Type'] === 'Project') return 'proj';
+  if (f['Projects']) return 'spons';
+  return 'core';
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -146,15 +165,16 @@ async function buildBlockSeries() {
   // rollup would erase them from four years of history and re-book them as new
   // in the month they were first linked. See CLAUDE.md.
   const records = await fetchAll(BLOCKS_TABLE,
-    ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects']);
+    ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects', EXCLUDE_FLAG]);
   console.log(`  ${records.length} block records`);
 
   const blocks = records
+    .filter(keepBlock)
     .filter(r => r.fields['First Clean Date'] && r.fields['Last Clean Date [Rollup]'])
     .map(r => ({
       first: new Date(r.fields['First Clean Date']),
       last: new Date(r.fields['Last Clean Date [Rollup]']),
-      isProject: r.fields['Funding Type'] === 'Project' || !!r.fields['Projects']
+      kind: blockKind(r.fields),
     }));
 
   console.log(`  ${blocks.length} blocks with clean history`);
@@ -173,31 +193,30 @@ async function buildBlockSeries() {
     const cutoff = new Date(me.getTime() - CHURN_DAYS * 86400000);
     const ms = new Date(y, m - 1, 1);
 
-    let coreA = 0, projA = 0, newC = 0, newP = 0;
+    const active = { core: 0, spons: 0, proj: 0 };
+    const fresh  = { core: 0, spons: 0, proj: 0 };
     const curActive = new Set();
 
     blocks.forEach((b, i) => {
-      if (b.first <= me && b.last >= cutoff) {
-        curActive.add(i);
-        b.isProject ? projA++ : coreA++;
-      }
-      if (b.first >= ms && b.first < me) {
-        b.isProject ? newP++ : newC++;
-      }
+      if (b.first <= me && b.last >= cutoff) { curActive.add(i); active[b.kind]++; }
+      if (b.first >= ms && b.first < me) fresh[b.kind]++;
     });
 
-    // Split churn by type: the president's Monthly Churn % is a core-block rate,
+    // Churn split by kind: the president's Monthly Churn % is a core-block rate,
     // so a month where project blocks roll off shouldn't read as core churn.
     const churnedIdx = idx > 0 ? [...prevActive].filter(i => !curActive.has(i)) : [];
-    const churned = churnedIdx.length;
-    const churnedCore = churnedIdx.filter(i => !blocks[i].isProject).length;
+    const gone = { core: 0, spons: 0, proj: 0 };
+    churnedIdx.forEach(i => gone[blocks[i].kind]++);
     prevActive = curActive;
 
     return {
       month: `${y}-${String(m).padStart(2, '0')}`,
-      core_active: coreA, proj_active: projA, total_active: coreA + projA,
-      new_core: newC, new_proj: newP, churned, churned_core: churnedCore,
-      net: (newC + newP) - churned
+      core_active: active.core, spons_active: active.spons, proj_active: active.proj,
+      total_active: active.core + active.spons + active.proj,
+      new_core: fresh.core, new_spons: fresh.spons, new_proj: fresh.proj,
+      churned: churnedIdx.length,
+      churned_core: gone.core, churned_spons: gone.spons, churned_proj: gone.proj,
+      net: (fresh.core + fresh.spons + fresh.proj) - churnedIdx.length
     };
   });
 }
@@ -257,9 +276,9 @@ const HIST_BLOCKS = ${JSON.stringify(blocksFinal)};
 // recomputed for a past month. Run this shortly after month end.
 async function buildMonthlyMetrics(blocksFinal) {
   console.log('\nFetching funding levels for KPIs...');
-  const records = await fetchAll(BLOCKS_TABLE, ['Funding Type', FUNDING_LEVEL]);
+  const records = await fetchAll(BLOCKS_TABLE, ['Funding Type', FUNDING_LEVEL, EXCLUDE_FLAG]);
 
-  const funded = records.filter(r => {
+  const funded = records.filter(keepBlock).filter(r => {
     const f = r.fields;
     return CORE_FUNDING.includes(f['Funding Type']) && (one(f[FUNDING_LEVEL]) || 0) >= FUNDED_MIN;
   });
@@ -351,7 +370,7 @@ async function postToSlack(text) {
 async function buildHealthData(now) {
   console.log('\nFetching block tier data...');
   const records = await fetchAll(BLOCKS_TABLE,
-    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type']);
+    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type', EXCLUDE_FLAG]);
   console.log(`  ${records.length} block records`);
 
   const subTiersSet = new Set();
@@ -362,6 +381,7 @@ async function buildHealthData(now) {
   const proj = { tiers: {}, heatmap: {}, total: 0 };
 
   for (const r of records) {
+    if (!keepBlock(r)) continue;
     const f = r.fields;
     const st = f['Subscriber Tier'] || '';
     const ct = f['Cleaning Level Tier'] || '';

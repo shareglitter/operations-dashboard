@@ -135,26 +135,28 @@
   <div class="stat-row" id="stats-blocks">
     <div class="stat"><div class="stat-label">Active Blocks</div><div class="stat-value" style="color:#1a7a4a" id="sb-total"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub" id="sb-total-sub"></div></div>
     <div class="stat"><div class="stat-label">Core Blocks</div><div class="stat-value" style="color:#1a7a4a" id="sb-core">—</div><div class="stat-sub">Resident / Community / Comm.</div></div>
+    <div class="stat"><div class="stat-label">Sponsored Blocks</div><div class="stat-value" style="color:#b8960b" id="sb-spons">—</div><div class="stat-sub">Neighbor-funded, in a project (Area32, TCB…)</div></div>
     <div class="stat"><div class="stat-label">Project Blocks</div><div class="stat-value" id="sb-proj">—</div><div class="stat-sub">Grant & project-funded</div></div>
-    <div class="stat"><div class="stat-label">Churned Last Mo</div><div class="stat-value" style="color:#b03a2e" id="sb-churn">—</div><div class="stat-sub">last clean >35 days</div></div>
+    <div class="stat"><div class="stat-label">Churned Last Mo</div><div class="stat-value" style="color:#b03a2e" id="sb-churn">—</div><div class="stat-sub">last clean >42 days</div></div>
   </div>
 
   <div class="toggle-row" id="toggle-blocks">
     <button class="toggle-btn active" onclick="setBlockFilter('all')">All blocks</button>
     <button class="toggle-btn" onclick="setBlockFilter('core')">Core only</button>
+    <button class="toggle-btn" onclick="setBlockFilter('sponsored')">Sponsored only</button>
     <button class="toggle-btn" onclick="setBlockFilter('project')">Project only</button>
   </div>
 
   <div class="chart-card">
     <div class="chart-title">Cumulative Active Blocks</div>
-    <div class="chart-sub">Active = last clean within 35 days of month-end</div>
+    <div class="chart-sub">Active = last clean within 42 days of month-end</div>
     <div class="canvas-wrap"><canvas id="chart-blocks-cum"></canvas></div>
     <div class="legend" id="legend-blocks-cum"></div>
   </div>
 
   <div class="chart-card">
     <div class="chart-title">New Blocks vs Churned per Month</div>
-    <div class="chart-sub">First clean = onboarded · Last clean >35 days = churned</div>
+    <div class="chart-sub">First clean = onboarded · Last clean >42 days = churned</div>
     <div class="canvas-wrap"><canvas id="chart-blocks-flow"></canvas></div>
     <div class="legend" id="legend-blocks-flow"></div>
   </div>
@@ -162,6 +164,13 @@
 
 <!-- ========== BLOCK HEALTH TAB ========== -->
 <div id="tab-health" class="tab-content">
+
+  <!-- OVERDUE CHECK (live) -->
+  <div class="chart-card">
+    <div class="chart-title">Funded Blocks Overdue for a Clean <span id="overdue-count" style="color:#b03a2e"></span></div>
+    <div class="chart-sub">Live · neighbor-funded blocks (core and sponsored) whose last clean is older than their cadence plus a 7-day grace, or that have never been cleaned</div>
+    <div id="overdue-list" style="font-size:12px;color:#9b9b96;overflow-x:auto">Loading…</div>
+  </div>
 
   <!-- CORE SECTION -->
   <div style="margin-bottom:32px">
@@ -308,7 +317,7 @@
 <!-- ========== TABLE TAB ========== -->
 <div id="tab-table" class="tab-content">
   <div class="table-wrap" id="table-wrap"></div>
-  <div class="table-note">* Current month is partial. Revenue = $50 × multiplier. COGS = cleaner payout. Bags from Trash+Debris scores (Jun '25+). Block churn = last clean >35 days.</div>
+  <div class="table-note">* Current month is partial. Revenue = $50 × multiplier. COGS = cleaner payout. Bags from Trash+Debris scores (Jun '25+). Block churn = last clean >42 days.</div>
 </div>
 
 <div class="footer" id="footer-ts"></div>
@@ -318,7 +327,7 @@
 // No API token in client code — all AT calls go through the Netlify function proxy
 const BLOCKS_TABLE = 'tblssvtXzgL200hSi';
 const CLEANS_TABLE = 'tblaDXbhz6DEcytgh';
-const CHURN_DAYS = 35;
+const CHURN_DAYS = 42;  // keep in sync with refresh.js
 const BAG_MAP = { rare:0.25, light:0.5, medium:0.75, heavy:1.25, severe:2.0 };
 // Grant-funded projects (the Safe Steps programs). Every other value of the
 // Blocks `Projects` select — Area32, Philly Safe, TCB South St, WPNA — is a
@@ -467,16 +476,26 @@ async function fetchBlockData() {
     // Last clean from the rollup, first clean from the automation field — see
     // the note in refresh.js buildBlockSeries(); the two must stay in sync.
     const records = await fetchAT(BLOCKS_TABLE,
-      ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects']);
+      ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects',
+       'Block Code', 'Funding Level (with Override and Cap)', 'Total Subscribers',
+       'Exclude from Dashboard']);
+
+    // Placeholder / test blocks (checkbox in Airtable) are dropped everywhere —
+    // same rule as refresh.js keepBlock().
+    const kept = records.filter(r => !r.fields['Exclude from Dashboard']);
+
+    // Skip check for the Block Health tab — same records, no extra request.
+    renderOverdue(kept);
 
     const blocks = [];
-    for (const r of records) {
+    for (const r of kept) {
       const f = r.fields;
       if (!f['First Clean Date'] || !f['Last Clean Date [Rollup]']) continue;
       blocks.push({
         first: new Date(f['First Clean Date']),
         last: new Date(f['Last Clean Date [Rollup]']),
-        isProject: (f['Funding Type'] === 'Project') || !!f['Projects']
+        // Same three-way split as refresh.js blockKind(): keep them in sync.
+        kind: f['Funding Type'] === 'Project' ? 'proj' : f['Projects'] ? 'spons' : 'core'
       });
     }
 
@@ -498,27 +517,28 @@ async function fetchBlockData() {
 
     const prevActive = new Set();
     const curActive = new Set();
-    let coreA = 0, projA = 0, newC = 0, newP = 0;
+    const active = { core: 0, spons: 0, proj: 0 };
+    const fresh  = { core: 0, spons: 0, proj: 0 };
 
     blocks.forEach((b, i) => {
       if (b.first <= prevMe && b.last >= prevCutoff) prevActive.add(i);
-      if (b.first <= today && b.last >= cutoff) {
-        curActive.add(i);
-        b.isProject ? projA++ : coreA++;
-      }
-      if (b.first >= ms && b.first < today) {
-        b.isProject ? newP++ : newC++;
-      }
+      if (b.first <= today && b.last >= cutoff) { curActive.add(i); active[b.kind]++; }
+      if (b.first >= ms && b.first < today) fresh[b.kind]++;
     });
 
-    const churned = [...prevActive].filter(i => !curActive.has(i)).length;
+    const gone = { core: 0, spons: 0, proj: 0 };
+    [...prevActive].filter(i => !curActive.has(i)).forEach(i => gone[blocks[i].kind]++);
+    const churned = gone.core + gone.spons + gone.proj;
 
     // Only add if not already in historical
     if (!HIST_BLOCKS.some(d => d.month === curMonthStr)) {
       allBlocks.push({
-        month: curMonthStr, core_active: coreA, proj_active: projA,
-        total_active: coreA + projA, new_core: newC, new_proj: newP,
-        churned, net: (newC + newP) - churned, _partial: true
+        month: curMonthStr,
+        core_active: active.core, spons_active: active.spons, proj_active: active.proj,
+        total_active: active.core + active.spons + active.proj,
+        new_core: fresh.core, new_spons: fresh.spons, new_proj: fresh.proj,
+        churned, churned_core: gone.core, churned_spons: gone.spons, churned_proj: gone.proj,
+        net: (fresh.core + fresh.spons + fresh.proj) - churned, _partial: true
       });
     }
 
@@ -526,6 +546,7 @@ async function fetchBlockData() {
     renderBlockCharts();
   } catch (e) {
     console.warn('Could not fetch block data:', e);
+    document.getElementById('overdue-list').textContent = 'Unavailable — live block data could not be loaded.';
     // Fall back to historical only
     updateBlockStats();
     renderBlockCharts();
@@ -719,26 +740,90 @@ function renderCleanCharts() {
   });
 }
 
+// ── Overdue funded blocks (Block Health tab) ──
+// A funded block should be cleaned roughly every cadenceDays(level); flag it once
+// it is more than OVERDUE_GRACE_DAYS past that, or if it has never been cleaned.
+// Funded = core Funding Type with level ≥ 0.25 — the same rule as the Funded
+// Blocks KPI, so sponsored (project-tagged) neighbor blocks are included.
+const CORE_FUNDING = ['Resident', 'Community', 'Commercial / Property Management'];
+const OVERDUE_GRACE_DAYS = 7;
+const cadenceDays = level => level >= 1 ? 7 : level >= 0.75 ? 9 : level >= 0.5 ? 14 : 28;
+const cadenceLabel = d => d === 7 ? 'Weekly' : d === 9 ? '3 of 4 wks' : d === 14 ? 'Every other wk' : 'Every 4 wks';
+
+function renderOverdue(records) {
+  const el = document.getElementById('overdue-list');
+  const today = new Date();
+  const rows = [];
+  for (const r of records) {
+    const f = r.fields;
+    const raw = f['Funding Level (with Override and Cap)'];
+    const level = Array.isArray(raw) ? raw[0] : raw;
+    if (!CORE_FUNDING.includes(f['Funding Type']) || !(level >= 0.25)) continue;
+    const last = f['Last Clean Date [Rollup]'] ? new Date(f['Last Clean Date [Rollup]']) : null;
+    const days = last ? Math.floor((today - last) / 86400000) : null;
+    const cad = cadenceDays(level);
+    if (last && days <= cad + OVERDUE_GRACE_DAYS) continue;
+    rows.push({ code: f['Block Code'] || '?', type: (f['Funding Type'] || '').split(' /')[0], proj: f['Projects'] || '',
+      cad, subs: f['Total Subscribers'] || 0, last, days });
+  }
+  rows.sort((a, b) => (b.days ?? 1e9) - (a.days ?? 1e9));
+
+  document.getElementById('overdue-count').textContent = rows.length ? `· ${rows.length}` : '· none';
+  if (!rows.length) {
+    el.innerHTML = '<div style="color:#1a7a4a">Every funded block has been cleaned within its cadence.</div>';
+    return;
+  }
+  let html = '<table class="data-table"><thead><tr><th>Block</th><th>Type</th><th>Cadence</th><th>Subs</th><th>Last clean</th><th>Days ago</th></tr></thead><tbody>';
+  for (const r of rows) {
+    html += `<tr><td style="font-weight:500">${r.code}</td><td>${r.type}${r.proj ? ' · ' + r.proj : ''}</td><td>${cadenceLabel(r.cad)}</td><td>${r.subs}</td>` +
+      `<td>${r.last ? r.last.toISOString().slice(0, 10) : '<span style="color:#b03a2e">never</span>'}</td>` +
+      `<td style="color:#b03a2e;font-weight:500">${r.days ?? '—'}</td></tr>`;
+  }
+  el.innerHTML = html + '</tbody></table>';
+}
+
 // ── Block charts ──
 function updateBlockStats() {
   const last = allBlocks.filter(d => !d._partial).pop() || allBlocks[allBlocks.length - 1];
   document.getElementById('sb-total').textContent = fN(last.total_active);
   document.getElementById('sb-total-sub').textContent = shortM(last.month) + (last._partial ? ' *' : '');
   document.getElementById('sb-core').textContent = fN(last.core_active);
+  document.getElementById('sb-spons').textContent = fN(last.spons_active || 0);
   document.getElementById('sb-proj').textContent = fN(last.proj_active);
   document.getElementById('sb-churn').textContent = fN(last.churned);
 }
+
+// Block kinds in stack order. Rows in data.js written before the three-way
+// split have no `spons_*` fields; kv() reads those as 0 so the tab still renders.
+const BLOCK_KINDS = [
+  { key: 'core',  filter: 'core',      label: 'Core',            color: '#1a7a4a' },
+  { key: 'spons', filter: 'sponsored', label: 'Sponsored',       color: '#b8960b' },
+  { key: 'proj',  filter: 'project',   label: 'Project / Grant', color: '#5db88a' },
+];
+const kv = (d, k) => d[k] || 0;
 
 function renderBlockCharts() {
   const data = allBlocks;
   const labels = xLabels(data);
   const f = blockFilter;
+  const kinds = f === 'all' ? BLOCK_KINDS : BLOCK_KINDS.filter(k => k.filter === f);
+  const activeOf = d => kinds.reduce((s, k) => s + kv(d, k.key + '_active'), 0);
+  const newOf = d => kinds.reduce((s, k) => s + kv(d, 'new_' + k.key), 0);
+  // Per-kind churn exists on rows written after the split. Older rows only carry
+  // the total, so fall back to a share proportional to that kind's active count.
+  const churnOf = d => {
+    if (f === 'all') return kv(d, 'churned');
+    const k = kinds[0].key;
+    if (d['churned_' + k] != null) return d['churned_' + k];
+    return Math.round(kv(d, 'churned') * kv(d, k + '_active') / (kv(d, 'total_active') || 1));
+  };
 
   // Cumulative
   if (charts.blocksCum) charts.blocksCum.destroy();
-  const cumDS = [];
-  if (f !== 'project') cumDS.push({ label: 'Core', data: data.map(d => d.core_active), backgroundColor: '#1a7a4a', stack: 'a', borderRadius: f === 'core' ? 3 : 0, borderSkipped: false });
-  if (f !== 'core') cumDS.push({ label: 'Project', data: data.map(d => d.proj_active), backgroundColor: '#5db88a', stack: 'a', borderRadius: 3, borderSkipped: false });
+  const cumDS = kinds.map((k, i) => ({
+    label: k.label, data: data.map(d => kv(d, k.key + '_active')), backgroundColor: k.color,
+    stack: 'a', borderRadius: i === kinds.length - 1 ? 3 : 0, borderSkipped: false
+  }));
 
   charts.blocksCum = new Chart(document.getElementById('chart-blocks-cum'), {
     type: 'bar',
@@ -754,8 +839,7 @@ function renderBlockCharts() {
           formatter: (value, ctx) => {
             const isTop = ctx.datasetIndex === cumDS.length - 1;
             if (!isTop) return '';
-            const d = data[ctx.dataIndex];
-            const total = f === 'core' ? d.core_active : f === 'project' ? d.proj_active : d.total_active;
+            const total = activeOf(data[ctx.dataIndex]);
             return total > 0 ? total.toLocaleString() : '';
           }
         }
@@ -767,30 +851,20 @@ function renderBlockCharts() {
     }
   });
 
-  const legCum = document.getElementById('legend-blocks-cum');
-  legCum.innerHTML = '';
-  if (f !== 'project') legCum.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#1a7a4a"></div> Core</div>';
-  if (f !== 'core') legCum.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#5db88a"></div> Project / Grant</div>';
+  const legDot = (color, label) => `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div> ${label}</div>`;
+  document.getElementById('legend-blocks-cum').innerHTML = kinds.map(k => legDot(k.color, k.label)).join('');
 
   // Flow
   if (charts.blocksFlow) charts.blocksFlow.destroy();
-  const flowDS = [];
-  if (f !== 'project') flowDS.push({ label: 'New Core', data: data.map(d => d.new_core), backgroundColor: '#1a7a4a', stack: 'n', borderRadius: 3 });
-  if (f !== 'core') flowDS.push({ label: 'New Project', data: data.map(d => d.new_proj), backgroundColor: '#5db88a', stack: 'n', borderRadius: 3 });
+  const flowDS = kinds.map(k => ({
+    label: 'New ' + k.label, data: data.map(d => kv(d, 'new_' + k.key)), backgroundColor: k.color, stack: 'n', borderRadius: 3
+  }));
 
-  const churnData = data.map(d => {
-    if (f === 'all') return -d.churned;
-    const ratio = f === 'core' ? d.core_active / (d.total_active || 1) : d.proj_active / (d.total_active || 1);
-    return -Math.round(d.churned * ratio);
-  });
+  const churnData = data.map(d => -churnOf(d));
 
   flowDS.push({ label: 'Churned', data: churnData, backgroundColor: '#d0392b', stack: 'ch', borderRadius: 3 });
   flowDS.push({
-    label: 'Net', data: data.map((d, i) => {
-      const nc = f === 'project' ? 0 : d.new_core;
-      const np = f === 'core' ? 0 : d.new_proj;
-      return nc + np + churnData[i];
-    }),
+    label: 'Net', data: data.map((d, i) => newOf(d) + churnData[i]),
     type: 'line', borderColor: '#1a1a18', backgroundColor: 'transparent', borderWidth: 2,
     pointRadius: 2, pointBackgroundColor: '#1a1a18', tension: 0.3, order: 0
   });
@@ -808,19 +882,17 @@ function renderBlockCharts() {
     }
   });
 
-  const legFlow = document.getElementById('legend-blocks-flow');
-  legFlow.innerHTML = '';
-  if (f !== 'project') legFlow.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#1a7a4a"></div> New Core</div>';
-  if (f !== 'core') legFlow.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#5db88a"></div> New Project</div>';
-  legFlow.innerHTML += '<div class="legend-item"><div class="legend-dot" style="background:#d0392b"></div> Churned</div>';
-  legFlow.innerHTML += '<div class="legend-item"><div class="legend-line" style="background:#1a1a18"></div> Net</div>';
+  document.getElementById('legend-blocks-flow').innerHTML =
+    kinds.map(k => legDot(k.color, 'New ' + k.label)).join('') +
+    legDot('#d0392b', 'Churned') +
+    '<div class="legend-item"><div class="legend-line" style="background:#1a1a18"></div> Net</div>';
 }
 
 // ── Data table ──
 function renderTable() {
   const merged = allCleans.map(d => {
     const b = allBlocks.find(x => x.month === d.month);
-    return { ...d, ...b ? { core_active: b.core_active, proj_active: b.proj_active, total_active: b.total_active, churned: b.churned, net: b.net, b_partial: b._partial } : {} };
+    return { ...d, ...b ? { core_active: b.core_active, spons_active: b.spons_active || 0, proj_active: b.proj_active, total_active: b.total_active, churned: b.churned, net: b.net, b_partial: b._partial } : {} };
   }).reverse();
 
   const totals = {
@@ -830,7 +902,7 @@ function renderTable() {
     gross_margin: sumF(allCleans, 'gross_margin'), bags: sumF(allCleans, 'bags')
   };
 
-  const cols = ['Month','Core Cl','Proj Cl','Grant Cl','Total','Revenue','COGS','Margin','GM%','Bags','Core Blk','Proj Blk','Churned','Net'];
+  const cols = ['Month','Core Cl','Proj Cl','Grant Cl','Total','Revenue','COGS','Margin','GM%','Bags','Core Blk','Spons Blk','Proj Blk','Churned','Net'];
   let html = '<table class="data-table"><thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
 
   for (const d of merged) {
@@ -843,6 +915,7 @@ function renderTable() {
     html += `<td style="color:#1a7a4a">$${fN(d.gross_margin)}</td><td>${d.gm_pct}%</td>`;
     html += `<td style="color:${d.bags ? '#b8960b' : '#ccc'}">${d.bags ? Math.round(d.bags) : '—'}</td>`;
     html += `<td style="color:#1a7a4a">${d.core_active != null ? d.core_active : '—'}</td>`;
+    html += `<td style="color:#b8960b">${d.core_active != null ? d.spons_active : '—'}</td>`;
     html += `<td style="color:#5db88a">${d.proj_active != null ? d.proj_active : '—'}</td>`;
     html += `<td style="color:#b03a2e">${d.churned != null ? d.churned : '—'}</td>`;
     html += `<td style="font-weight:500">${d.net != null ? d.net : '—'}</td>`;
@@ -853,7 +926,7 @@ function renderTable() {
   html += `<td>TOTAL</td><td>${fN(totals.core_cleans)}</td><td>${fN(totals.project_cleans)}</td><td>${fN(totals.grant_cleans)}</td>`;
   html += `<td>${fN(totals.total_cleans)}</td><td>$${fN(totals.revenue)}</td><td>$${fN(totals.cogs)}</td>`;
   html += `<td style="color:#1a7a4a">$${fN(totals.gross_margin)}</td><td>${Math.round((totals.revenue - totals.cogs) / totals.revenue * 100)}%</td>`;
-  html += `<td style="color:#b8960b">${Math.round(totals.bags)}</td><td colspan="4"></td>`;
+  html += `<td style="color:#b8960b">${Math.round(totals.bags)}</td><td colspan="5"></td>`;
   html += '</tr></tfoot></table>';
 
   document.getElementById('table-wrap').innerHTML = html;
@@ -861,10 +934,10 @@ function renderTable() {
 
 // ── CSV export ──
 function exportCSV() {
-  const h = ['Month','Core Cleans','Proj Cleans','Grant Cleans','Total Cleans','Revenue','COGS','Gross Margin','GM%','Bags','Core Blocks','Proj Blocks','Total Blocks','Churned','Net'];
+  const h = ['Month','Core Cleans','Proj Cleans','Grant Cleans','Total Cleans','Revenue','COGS','Gross Margin','GM%','Bags','Core Blocks','Sponsored Blocks','Proj Blocks','Total Blocks','Churned','Net'];
   const rows = allCleans.map(d => {
     const b = allBlocks.find(x => x.month === d.month);
-    return [d.month, d.core_cleans, d.project_cleans, d.grant_cleans, d.total_cleans, d.revenue, d.cogs, d.gross_margin, d.gm_pct + '%', Math.round(d.bags), b?.core_active || '', b?.proj_active || '', b?.total_active || '', b?.churned || '', b?.net ?? ''];
+    return [d.month, d.core_cleans, d.project_cleans, d.grant_cleans, d.total_cleans, d.revenue, d.cogs, d.gross_margin, d.gm_pct + '%', Math.round(d.bags), b?.core_active || '', b?.spons_active || '', b?.proj_active || '', b?.total_active || '', b?.churned || '', b?.net ?? ''];
   });
   const csv = [h, ...rows].map(r => r.join(',')).join('\n');
   const a = document.createElement('a');

@@ -115,6 +115,40 @@ Still manual: `Cleaner Churn %` (needs a Cleaners table), `Partnerships`,
 The three block-state metrics are **snapshots of Blocks as it stands right now**,
 not as of month end — they cannot be back-computed. Run the refresh promptly.
 
+## Block growth: three kinds, 42-day window
+
+`buildBlockSeries` (and the live current-month mirror in `index.html`
+`fetchBlockData`) classify every block one of three ways — `blockKind()`:
+
+- **core** — Funding Type Resident / Community / Commercial, no `Projects` tag
+- **spons** (sponsored) — core Funding Type *but* a `Projects` tag (Area32,
+  TCB South St, WPNA…). Neighbor-funded blocks inside a project: somewhere
+  between true core and true grant, so they get their own line
+- **proj** — Funding Type = Project (SSNE / SSW / SSNW grants etc.)
+
+Rows carry `core_/spons_/proj_active`, `new_*`, `churned_*` and totals. The
+president's Block Growth % and Monthly Churn % stay **core-only**; the Block
+Health tab and the Funded Blocks KPI still count sponsored blocks as core
+(Funding Type only). That asymmetry is deliberate — Sep 2026 reconciliation:
+446 funded vs 391 growth-active core = 35 sponsored + 17 stale + 11 never
+cleaned − 8 cleaned-but-unfunded.
+
+A block is active in a month if its last clean is within **`CHURN_DAYS` = 42**
+days of month end (was 35). 42 lets a once-every-4-weeks block survive a
+two-week slip; the 11-block Community cohort cleaned Jul 21–22 fell out of
+August under 35. Keep `CHURN_DAYS` identical in `refresh.js` and `index.html`.
+
+Blocks with the **`Exclude from Dashboard`** checkbox (placeholders / test
+blocks — ImpactFund, 1300Walnut as of Sep 2026) are skipped by every
+block-level series, the Block Health tiers, the Funded Blocks KPIs and the
+overdue-clean check (`keepBlock()` in refresh.js, the `kept` filter in
+`fetchBlockData`). Cleaning Log rows are not filtered.
+
+Because the series is rebuilt from Airtable's *current* state, past months can
+shift between runs when block records are edited (dates set, cleaning rows
+relinked). Two runs two days apart moved Aug core active 389 → 391. Nothing
+snapshots per-block state, so such shifts can't be traced after the fact.
+
 ## Block dates: why first and last come from different fields
 
 `buildBlockSeries` reads **`First Clean Date`** (automation-filled) but
