@@ -149,28 +149,41 @@ shift between runs when block records are edited (dates set, cleaning rows
 relinked). Two runs two days apart moved Aug core active 389 → 391. Nothing
 snapshots per-block state, so such shifts can't be traced after the fact.
 
-## Block dates: why first and last come from different fields
+## Block dates: derived from the Cleaning Log, as of each month end
 
-`buildBlockSeries` reads **`First Clean Date`** (automation-filled) but
-**`Last Clean Date [Rollup]`** (a MAX rollup over linked Cleaning Log rows).
-That asymmetry is deliberate.
+`buildBlockSeries(byBlock)` no longer reads clean dates off the Blocks table.
+`buildCleaningSeries` pulls the **`Block`** link on every Cleaning Log row (same
+request, one more field) and hands back a per-block sorted list of clean
+timestamps. For each month the series takes the latest clean dated **before that
+month end**; a block is active if that is within `CHURN_DAYS` and its first clean
+precedes month end.
 
-The automation `New Cleaning Log: Last Clean Date & Send Email Notification`
-found the block via *Block Code contains …*, so a clean on `2300South` also
-stamped `2200-2300South`. Every such pair left one block looking dormant (it
-churned in the dashboard while being cleaned normally) and its superset twin
-looking immortal. The match was fixed in Aug 2026, but 38 blocks still carry
-bad dates; the rollup is immune by construction.
+Why: `Last Clean Date [Rollup]` is a present-day MAX. A block dormant all summer
+and cleaned on Sep 4 read as *active in August* and its August churn vanished, so
+August drifted 389 → 391 → 403 across three runs in one week, and the churn KPI
+shrank the later the refresh ran. Now a completed month depends only on cleans
+dated in or before it. It still moves — legitimately — when a clean is logged
+late or a row is relinked to the right block; `reportShifts()` prints any
+completed month that moved by more than `SHIFT_TOLERANCE` (2) since the previous
+`data.js`, so a human sees it in the Actions log / Slack.
 
-`First Clean Date` stays on the automation field because ~13 blocks were
+**`First Clean Date` (automation) is kept only as a floor.** ~13 blocks were
 backfilled to **2022-10-06** with no linked cleaning rows that old (the
-`800S12th` / `1100Christian` / `1200Catharine` cohort). Switching it to the
-rollup erases them from 45 months of history and re-books them as new in the
-month they were first linked — a fake +12 onboarding spike in Jul 2026.
-Resolve those blocks' linkage before considering the switch.
+`800S12th` / `1100Christian` / `1200Catharine` cohort). First clean = the earlier
+of the field and the first logged clean, so they keep their 2022 onboarding
+instead of re-booking as new in the month they were first linked.
 
-Note the rollup renders in **UTC**; set its field formatting to
-America/New_York or ~80 blocks shift by a day.
+Known gaps: ~1,280 Cleaning Log rows (2.5%, newest Jul 2026) have **no Block
+link** and are invisible to block growth (they were equally invisible to the
+rollup). Blocks with a First Clean Date but zero linked rows are skipped.
+
+The **live current month** in `index.html` (`fetchBlockData`) still uses the
+rollup: "last clean as of now" is the right answer for the month in progress and
+it avoids pulling the log client-side. The automation-filled `Last Clean Date`
+field is no longer read anywhere (its substring-match bug stamped
+`2200-2300South` for cleans on `2300South`; fixed Aug 2026, ~38 blocks still
+carry bad dates). Note the rollup renders in **UTC**; the log-derived series
+also keys months in UTC to match the cleaning series.
 
 ## Next steps / deferred
 

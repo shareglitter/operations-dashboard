@@ -112,14 +112,27 @@ function one(val) {
 async function buildCleaningSeries() {
   console.log('Fetching cleaning log...');
   const records = await fetchAll(CLEANS_TABLE,
-    ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris']);
+    ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris', 'Block']);
   console.log(`  ${records.length} cleaning records`);
 
   const monthly = {};
+  // Clean timestamps per block record id. buildBlockSeries derives first/last
+  // clean *as of each month end* from these, so a month's block numbers depend
+  // only on cleans dated in or before it — a September clean on a dormant block
+  // can no longer retroactively make it "active in August".
+  const byBlock = new Map();
+  let unlinked = 0;
   for (const r of records) {
     const f = r.fields;
     if (!f['Date and Time']) continue;
     const month = f['Date and Time'].slice(0, 7);
+    const blockId = one(f['Block']);
+    if (blockId) {
+      if (!byBlock.has(blockId)) byBlock.set(blockId, []);
+      byBlock.get(blockId).push(Date.parse(f['Date and Time']));
+    } else {
+      unlinked++;
+    }
     const mult = one(f['Multiplier']) || 1;
     const payout = one(f['Payout']) || 25;
     const proj = one(f['Project']);
@@ -137,7 +150,10 @@ async function buildCleaningSeries() {
     m.debris_bags += normScore(f['Debris']);
   }
 
-  return Object.keys(monthly).sort().map(month => {
+  for (const ts of byBlock.values()) ts.sort((a, b) => a - b);
+  console.log(`  ${byBlock.size} blocks linked · ${unlinked} rows with no Block link (invisible to block growth)`);
+
+  const series = Object.keys(monthly).sort().map(month => {
     const m = monthly[month];
     const total = m.core + m.project + m.grant;
     const gm = m.rev - m.cogs;
@@ -151,54 +167,63 @@ async function buildCleaningSeries() {
       debris_bags: Math.round(m.debris_bags * 100) / 100
     };
   });
+  return { series, byBlock };
 }
 
-async function buildBlockSeries() {
+async function buildBlockSeries(byBlock) {
   console.log('Fetching block data...');
-  // Last clean comes from the rollup (MAX over linked Cleaning Log rows): the
-  // automation-filled `Last Clean Date` matched blocks by *substring* of Block
-  // Code, so a clean on 2300South also stamped 2200-2300South, leaving the real
-  // block looking dormant and its superset twin looking immortal.
+  // Block dates come from the Cleaning Log (byBlock), not from the Blocks
+  // table. The `Last Clean Date [Rollup]` is a present-day MAX, so a block
+  // cleaned in September after a dormant summer looked active in August and
+  // its August churn vanished — the number drifted with every run. Deriving
+  // "last clean as of month end" from the log makes each completed month
+  // depend only on cleans dated in or before it.
   //
-  // First clean deliberately stays on the automation field. ~13 blocks were
-  // backfilled to 2022-10-06 with no linked cleaning rows that old, so the
-  // rollup would erase them from four years of history and re-book them as new
-  // in the month they were first linked. See CLAUDE.md.
+  // `First Clean Date` (automation-filled) is kept only as a *floor*: ~13
+  // blocks were backfilled to 2022-10-06 with no linked cleaning rows that old,
+  // and the log alone would re-book them as new in 2026. See CLAUDE.md.
   const records = await fetchAll(BLOCKS_TABLE,
-    ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects', EXCLUDE_FLAG]);
+    ['First Clean Date', 'Funding Type', 'Projects', EXCLUDE_FLAG]);
   console.log(`  ${records.length} block records`);
 
-  const blocks = records
-    .filter(keepBlock)
-    .filter(r => r.fields['First Clean Date'] && r.fields['Last Clean Date [Rollup]'])
-    .map(r => ({
-      first: new Date(r.fields['First Clean Date']),
-      last: new Date(r.fields['Last Clean Date [Rollup]']),
-      kind: blockKind(r.fields),
-    }));
-
-  console.log(`  ${blocks.length} blocks with clean history`);
-
-  const today = new Date();
-  const months = [];
-  let cur = new Date(2022, 0, 1);
-  while (cur <= today) {
-    months.push([cur.getFullYear(), cur.getMonth() + 1]);
-    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  const blocks = [];
+  let floored = 0;
+  for (const r of records) {
+    if (!keepBlock(r)) continue;
+    const cleans = byBlock.get(r.id);
+    if (!cleans || !cleans.length) continue;   // never cleaned — nothing to plot
+    let first = cleans[0];
+    const auto = r.fields['First Clean Date'] ? Date.parse(r.fields['First Clean Date']) : NaN;
+    if (auto < first) {
+      // Only count it as a real floor when the field predates the log by a day+
+      // (a same-day date field vs. a timestamped clean is noise).
+      if (first - auto > 86400000) floored++;
+      first = auto;
+    }
+    blocks.push({ first, cleans, kind: blockKind(r.fields), ptr: -1 });
   }
+  console.log(`  ${blocks.length} blocks with clean history (${floored} floored by First Clean Date)`);
+
+  // Month boundaries in UTC, matching the cleaning series' month key.
+  const today = Date.now();
+  const months = [];
+  for (let y = 2022, m = 1; Date.UTC(y, m - 1, 1) <= today; m === 12 ? (y++, m = 1) : m++) months.push([y, m]);
 
   let prevActive = new Set();
   return months.map(([y, m], idx) => {
-    const me = new Date(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1);
-    const cutoff = new Date(me.getTime() - CHURN_DAYS * 86400000);
-    const ms = new Date(y, m - 1, 1);
+    const ms = Date.UTC(y, m - 1, 1);
+    const me = Date.UTC(y, m, 1);              // exclusive: first instant of next month
+    const cutoff = me - CHURN_DAYS * 86400000;
 
     const active = { core: 0, spons: 0, proj: 0 };
     const fresh  = { core: 0, spons: 0, proj: 0 };
     const curActive = new Set();
 
     blocks.forEach((b, i) => {
-      if (b.first <= me && b.last >= cutoff) { curActive.add(i); active[b.kind]++; }
+      // Months ascend, so a pointer per block walks its sorted cleans once.
+      while (b.ptr + 1 < b.cleans.length && b.cleans[b.ptr + 1] < me) b.ptr++;
+      const lastAsOf = b.ptr >= 0 ? b.cleans[b.ptr] : null;
+      if (b.first < me && lastAsOf !== null && lastAsOf >= cutoff) { curActive.add(i); active[b.kind]++; }
       if (b.first >= ms && b.first < me) fresh[b.kind]++;
     });
 
@@ -221,12 +246,36 @@ async function buildBlockSeries() {
   });
 }
 
+// Completed months should now be stable run to run. If one moves anyway, it's
+// a late-logged or relinked clean — legitimate, but worth a human glance.
+const SHIFT_TOLERANCE = 2;
+function reportShifts(next) {
+  const file = path.join(__dirname, 'data.js');
+  if (!fs.existsSync(file)) return;
+  const m = fs.readFileSync(file, 'utf8').match(/const HIST_BLOCKS = (\[.*?\]);/s);
+  if (!m) return;
+  let prev;
+  try { prev = JSON.parse(m[1]); } catch { return; }
+  const byMonth = new Map(prev.map(r => [r.month, r]));
+  const moved = next.filter(r => {
+    const p = byMonth.get(r.month);
+    return p && ['core_active', 'churned_core', 'total_active'].some(k =>
+      Math.abs((r[k] || 0) - (p[k] || 0)) > SHIFT_TOLERANCE);
+  });
+  if (!moved.length) { console.log('  Completed months unchanged from previous data.js (±' + SHIFT_TOLERANCE + ').'); return; }
+  console.log(`  ⚠ ${moved.length} completed month(s) moved by more than ${SHIFT_TOLERANCE} since the previous data.js:`);
+  moved.slice(-12).forEach(r => {
+    const p = byMonth.get(r.month);
+    console.log(`     ${r.month}  core ${p.core_active} → ${r.core_active}   churned core ${p.churned_core ?? '?'} → ${r.churned_core}   total ${p.total_active} → ${r.total_active}`);
+  });
+}
+
 async function main() {
   console.log('Glitter Ops Dashboard — Data Refresh');
   console.log('=====================================\n');
 
-  const cleans = await buildCleaningSeries();
-  const blocks = await buildBlockSeries();
+  const { series: cleans, byBlock } = await buildCleaningSeries();
+  const blocks = await buildBlockSeries(byBlock);
 
   // Drop current partial month (it's computed live by the app)
   const now = new Date();
@@ -240,6 +289,7 @@ async function main() {
   console.log(`\nCleaning data: ${cleansFinal.length} months (${cleansFinal[0].month} → ${lastClean.month})`);
   console.log(`Block data: ${blocksFinal.length} months (${blocksFinal[0].month} → ${lastBlock.month})`);
   console.log(`Last complete month — Cleans: ${lastClean.total_cleans}, Revenue: $${lastClean.revenue.toLocaleString()}, Core blocks: ${lastBlock.core_active}`);
+  reportShifts(blocksFinal);
 
   const output = `// Glitter Operations Dashboard — Historical Data
 // Auto-generated ${now.toISOString().slice(0, 10)}

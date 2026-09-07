@@ -473,8 +473,10 @@ async function fetchCurrentMonthCleans() {
 // ── Compute block series from live AT data ──
 async function fetchBlockData() {
   try {
-    // Last clean from the rollup, first clean from the automation field — see
-    // the note in refresh.js buildBlockSeries(); the two must stay in sync.
+    // The live (partial) month reads dates off the Blocks table: the rollup is
+    // "last clean as of now", which is exactly right for the month in progress.
+    // Completed months in data.js are derived from the Cleaning Log instead —
+    // see refresh.js buildBlockSeries() for why.
     const records = await fetchAT(BLOCKS_TABLE,
       ['First Clean Date', 'Last Clean Date [Rollup]', 'Funding Type', 'Projects',
        'Block Code', 'Funding Level (with Override and Cap)', 'Total Subscribers',
