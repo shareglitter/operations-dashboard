@@ -21,8 +21,9 @@ const ctx = { console, location: { hostname: 'check', protocol: 'https:' } };
 vm.createContext(ctx);
 vm.runInContext(cut('// ── Config ──', 'let charts = {};') + cut('// ── Helpers ──', '// ── Airtable via proxy') + cut('// @compute-start', '// @compute-end'), ctx);
 // Top-level `const`s don't become context globals — read them back with an expression.
-const { T, CS_FIELD, PLEDGE_FIELD, LEAD_BLOCK_LOOKUP, FUNDING_LEVEL, EXCLUDE_FLAG, one, buildAmbassadorModel } =
-  vm.runInContext('({ T, CS_FIELD, PLEDGE_FIELD, LEAD_BLOCK_LOOKUP, FUNDING_LEVEL, EXCLUDE_FLAG, one, buildAmbassadorModel })', ctx);
+const { T, CS_FIELD, PLEDGE_FIELD, LEAD_BLOCK_LOOKUP, FUNDING_LEVEL, EXCLUDE_FLAG, COMPOST_ADDON, COMPOST_ADDON_TS, COMPOST_FORM, COMPOST_COUNT, SERVICE_FLAGS,
+  one, buildAmbassadorModel, buildServicesModel, buildCompostModel } =
+  vm.runInContext('({ T, CS_FIELD, PLEDGE_FIELD, LEAD_BLOCK_LOOKUP, FUNDING_LEVEL, EXCLUDE_FLAG, COMPOST_ADDON, COMPOST_ADDON_TS, COMPOST_FORM, COMPOST_COUNT, SERVICE_FLAGS, one, buildAmbassadorModel, buildServicesModel, buildCompostModel })', ctx);
 
 async function fetchAT(table, fields, filter) {
   const res = await fetch(PROXY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ table, fields, filter }) });
@@ -66,6 +67,28 @@ const check = (name, ok, detail = '') => { checks.push(ok); console.log(`  ${ok 
   const known = new Set(['Active', 'Invoice Sent', 'Pledged, Not Yet Paying', 'Pledged, Block Not Active', 'Payment Churn', 'Missing Payment', 'Never Converted', 'Negative Churn', 'Positive Churn']);
   check('contribution statuses all known', [...cs].every(s => known.has(s)), [...cs].filter(s => !known.has(s)).join(', ') || 'unknown ones would count as "lost"');
   check('proxy answered every field (no 422)', true);
+
+  // ── Service Interest + Compost: same requests the lazy tabs make ──
+  const flagFields = SERVICE_FLAGS.map(f => f.field);
+  const blockFields = ['Block Code', 'Compost Pilot', COMPOST_COUNT, 'Compost Pickup Day', 'Total Subscribers', FUNDING_LEVEL, EXCLUDE_FLAG];
+  const [flagSubs, pilotBlocks, addOnBlocks, compostSubs] = await Promise.all([
+    fetchAT(T.subscribers, flagFields, `OR(${flagFields.map(f => `{${f}}`).join(', ')})`),
+    fetchAT(T.blocks, blockFields, '{Compost Pilot}=1'),
+    fetchAT(T.blocks, blockFields, `{${COMPOST_COUNT}}>0`),
+    fetchAT(T.activeSubs, [COMPOST_ADDON, COMPOST_ADDON_TS, COMPOST_FORM, 'Contribution Status', 'Block Code', 'Member Since'], `OR({${COMPOST_ADDON}}=1, FIND("Yes", {${COMPOST_FORM}}))`),
+  ]);
+  const sv = buildServicesModel(flagSubs);
+  console.log(`\nService interest: ${sv.interested} subscribers · ` + sv.services.map(x => `${x.label} ${x.n}`).join(' · ') + ` · 2+ services: ${sv.multi}`);
+  const cm = buildCompostModel({ pilotBlocks, addOnBlocks, subs: compostSubs, now });
+  const ct = cm.totals;
+  console.log(`Compost: active ${ct.active} · pending ${ct.pending} · churned ${ct.churned} · interested-not-added ${ct.interested} · pilot blocks ${ct.pilotBlocks} · add-ons on pilot blocks ${ct.pilotAddOns}`);
+  console.log('\nChecks (services + compost):');
+  check('every interested subscriber has ≥1 new-service flag', sv.interested === flagSubs.filter(r => SERVICE_FLAGS.some(fl => !fl.shipped && (fl.test ? fl.test(r.fields[fl.field]) : !!r.fields[fl.field]))).length);
+  check('new-service flags sum ≥ interested', sv.services.filter(x => !x.shipped).reduce((a, x) => a + x.n, 0) >= sv.interested);
+  check('compost buckets sum to add-ons', ct.active + ct.pending + ct.churned === ct.addOns);
+  const blockSum = cm.blocks.reduce((a, b) => a + b.blockCount, 0);
+  check('Airtable block counts match add-on rows', blockSum === ct.addOns, `blocks say ${blockSum}, subscriptions say ${ct.addOns}`);
+  check('every pilot block present', pilotBlocks.filter(r => !r.fields[EXCLUDE_FLAG]).length === ct.pilotBlocks);
 
   const bad = checks.filter(ok => !ok).length;
   console.log(bad ? `\n${bad} check(s) failed` : '\nAll checks passed');

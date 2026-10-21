@@ -176,32 +176,35 @@
 <div id="tab-services" class="tab-content">
   <div class="error" id="err-services"></div>
   <div class="stat-row">
-    <div class="stat"><div class="stat-label">Subscribers with a non-cleaning service</div><div class="stat-value" id="s-count"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub">Subscribers → Services</div></div>
-    <div class="stat"><div class="stat-label">Services on offer</div><div class="stat-value" id="s-services">—</div><div class="stat-sub" id="s-services-sub"></div></div>
-    <div class="stat"><div class="stat-label">Added last 90 days</div><div class="stat-value" id="s-recent">—</div><div class="stat-sub">by Member Since</div></div>
-    <div class="stat"><div class="stat-label">Leaves · Snow · Weeds · Cans</div><div class="stat-value" style="color:var(--ink-3)">n/a</div><div class="stat-sub">not yet captured in Airtable</div></div>
+    <div class="stat"><div class="stat-label">Interested subscribers</div><div class="stat-value" id="s-count"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub">opted in to snow, leaves, trash cans or weeds</div></div>
+    <div class="stat"><div class="stat-label">Most requested</div><div class="stat-value" id="s-top">—</div><div class="stat-sub" id="s-top-sub"></div></div>
+    <div class="stat"><div class="stat-label">Interests per subscriber</div><div class="stat-value" id="s-avg">—</div><div class="stat-sub" id="s-avg-sub"></div></div>
+    <div class="stat"><div class="stat-label">Interested in 2+ services</div><div class="stat-value" id="s-multi">—</div><div class="stat-sub">strongest leads for a bundle</div></div>
   </div>
   <div class="half-row">
     <div class="chart-card">
       <div class="chart-title">Interest by service</div>
-      <div class="chart-sub">Subscribers whose Services includes something other than Cleaning</div>
+      <div class="chart-sub">Subscribers with the opt-in flag set · one subscriber can count toward several · compost (lighter) already ships and is excluded from the tiles</div>
       <div class="canvas-wrap short"><canvas id="chart-services"></canvas></div>
     </div>
     <div class="chart-card">
-      <div class="chart-title">What this tab needs</div>
+      <div class="chart-title">Reading this tab</div>
       <div class="notes">
-        Today the only service-interest signal in Airtable is the <b>Services</b> multi-select on
-        Subscribers, and its options are <b>Cleaning</b> and <b>Compost</b>. Nothing records interest in
-        leaf, snow, weed or trash-can service yet, so this tab can't show it.
         <ul>
-          <li><b>Lightest fix:</b> add <i>Leaves</i>, <i>Snow</i>, <i>Weeds</i>, <i>Trash cans</i> as options on
-            Services and expose them on the signup / account form. This chart picks up new options automatically.</li>
-          <li><b>If interest ≠ subscription:</b> a small <i>Service Interest</i> table (subscriber, service, date, source,
-            block) keeps "curious" separate from "paying", and gives a per-month series + a by-zone view.</li>
-          <li>Either way, the request is one filtered fetch; no refresh script changes.</li>
+          <li><b>Source</b>: the five opt-in flags on Subscribers (<i>Snow</i>, <i>Leaves</i>, <i>TrashCan</i>, <i>Weeds</i>, <i>Compost</i>),
+            synced from ActiveCampaign tags. One filtered request returns only subscribers with at least one flag set.</li>
+          <li>This is <b>interest</b>, not revenue. Compost has shipped, so it is charted for reference only (lighter bar) and left out of the
+            tiles — the Compost tab tracks its paying add-ons.</li>
+          <li>There is no date on the flags yet, so no trend over time. If ActiveCampaign can sync the tag date too, this tab gets a monthly series.</li>
+          <li>Zone / neighborhood splits would need the subscriber's zip or block zone on the proxy allow-list — easy to add once there is a question to answer.</li>
         </ul>
       </div>
     </div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Service combinations</div>
+    <div class="chart-sub">Which services the same subscribers ask for together · diagonal = total for that service</div>
+    <div class="table-wrap" id="services-table"></div>
   </div>
 </div>
 
@@ -230,8 +233,8 @@
           <li><b>Interested, not added</b> = the subscriber answered "Yes, add compost…" on the signup form (<i>Compost Opt-In</i> on
             Subscribers) but no subscription has the add-on ticked. That's the follow-up list.</li>
           <li><b>Revenue</b> is estimated at $15 / month per active add-on; the MRR field on subscriptions is the whole pledge, not compost alone.</li>
-          <li><b>Pilot blocks</b> come from the <i>Compost Pilot</i> checkbox on Blocks; <i>Compost Neighbors</i> is the hand-kept email list
-            there and is shown for comparison. A block with add-ons but no pilot flag is identified but has no bin yet — expected during rollout.</li>
+          <li><b>Pilot blocks</b> come from the <i>Compost Pilot</i> checkbox on Blocks. A block with add-ons but no pilot flag is identified
+            but has no bin yet — expected during rollout.</li>
           <li>No bin-count, pickup-log or weight data exists yet. A <i>Compost Pickups</i> table (block, date, bins, est. lbs) would give this tab a
             diversion series like the ops page's bags chart.</li>
         </ul>
@@ -240,7 +243,7 @@
   </div>
   <div class="chart-card">
     <div class="chart-title">By block</div>
-    <div class="chart-sub">Add-ons per block against the pilot flag and the hand-kept neighbor list</div>
+    <div class="chart-sub">Add-ons per block by status · "Block count" is Airtable's own count of add-on subscriptions on the block, as a cross-check</div>
     <div class="table-wrap" id="compost-table"></div>
   </div>
 </div>
@@ -278,6 +281,18 @@ const COMPOST_ADDON = 'Compost Add-On';                       // checkbox on Act
 const COMPOST_ADDON_TS = 'Last Modified - Compost Add-On';     // when the box was last ticked
 const COMPOST_FORM = 'Compost Opt-In (from Subscriber)';       // signup-form answer, looked up from Subscribers
 const COMPOST_PRICE = 15;                                      // $/month per add-on, for the revenue estimate
+const COMPOST_COUNT = 'Count Compost Add-On Active Subscriptions';   // on Blocks: subscriptions on the block with the add-on ticked
+// Service-interest flags on Subscribers (synced from ActiveCampaign tags). Order = display order.
+// [field, label, isInterested?] — default is "field is set". Compost reuses the older signup-form
+// single-select ("Yes, add compost for $15 per month" / "Not Right Now"), so only a Yes counts.
+// A flag marked `shipped` (compost) is charted for reference but excluded from the
+// headline interest counts — the Compost tab already tracks it as paying add-ons.
+const SERVICE_FLAGS = [
+  { field: 'Snow opt-in', label: 'Snow' }, { field: 'Leaves opt-in', label: 'Leaves' },
+  { field: 'TrashCan opt-in', label: 'Trash cans' }, { field: 'Weeds opt-in', label: 'Weeds' },
+  { field: 'Compost Opt-In', label: 'Compost', shipped: true, test: v => /^yes/i.test(one(v) || '') },
+];
+const flagOn = (f, flag) => flag.test ? flag.test(f[flag.field]) : !!f[flag.field];
 const PENDING_STATUSES = new Set(['Invoice Sent', 'Pledged, Not Yet Paying', 'Pledged, Block Not Active']);
 
 const C = {
@@ -415,35 +430,44 @@ function buildAmbassadorModel({ ambassadors, shifts, leads, blocks, now }) {
   return { months, ambassadors: ambList, totals: t, stages, stagePledge, blocks: blockRows, quality };
 }
 
-function buildServicesModel(subs, now) {
-  const counts = {};
-  let recent = 0;
-  const cutoff = new Date(Date.parse(now || new Date().toISOString()) - 90 * 86400000).toISOString().slice(0, 10);
+function buildServicesModel(subs) {
+  const counts = SERVICE_FLAGS.map(flag => ({ flag, field: flag.field, label: flag.label, shipped: !!flag.shipped, n: 0 }));
+  const pairs = {};
+  let interested = 0, flagsTotal = 0, multi = 0;
   subs.forEach(r => {
-    const svcs = (r.fields.Services || []).filter(s => s !== 'Cleaning');
-    svcs.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
-    if (svcs.length && (r.fields['Member Since'] || r.createdTime || '') >= cutoff) recent++;
+    const on = counts.filter(c => flagOn(r.fields, c.flag));
+    on.forEach(c => c.n++);
+    for (let i = 0; i < on.length; i++) for (let j = 0; j < on.length; j++) {
+      const k = on[i].label + '|' + on[j].label; pairs[k] = (pairs[k] || 0) + 1;
+    }
+    const fresh = on.filter(c => !c.shipped);          // headline = new services only
+    if (!fresh.length) return;
+    interested++; flagsTotal += fresh.length; if (fresh.length > 1) multi++;
   });
-  const services = Object.entries(counts).map(([service, n]) => ({ service, n })).sort((a, b) => b.n - a.n);
-  return { services, subscribers: subs.filter(r => (r.fields.Services || []).some(s => s !== 'Cleaning')).length, recent };
+  const services = [...counts].sort((a, b) => (a.shipped - b.shipped) || (b.n - a.n));
+  const top = services.find(x => !x.shipped && x.n) || null;
+  return { services, interested, multi, avg: interested ? flagsTotal / interested : 0, pairs, top, newServices: counts.filter(c => !c.shipped).length };
 }
 
-function buildCompostModel({ pilotBlocks, neighborBlocks, subs, now }) {
+function buildCompostModel({ pilotBlocks, addOnBlocks, subs, now }) {
   const nowMonth = monthOf(now || new Date().toISOString());
   const byCode = {};
-  const row = code => byCode[code] || (byCode[code] = { code, pilot: false, neighbors: 0, pickup: '', subs: 0, level: 0, active: 0, pending: 0, churned: 0, interested: 0 });
+  const row = code => byCode[code] || (byCode[code] = { code, pilot: false, blockCount: 0, pickup: '', subs: 0, level: 0, active: 0, pending: 0, churned: 0, interested: 0 });
   const addBlock = (r, isPilot) => {
     const f = r.fields, b = row(f['Block Code'] || r.id);
-    b.pilot = b.pilot || isPilot; b.neighbors = (f['Compost Neighbors'] || []).length;
+    b.pilot = b.pilot || isPilot; b.blockCount = +f[COMPOST_COUNT] || 0;
     b.pickup = f['Compost Pickup Day'] || ''; b.subs = +f['Total Subscribers'] || 0; b.level = +f[FUNDING_LEVEL] || 0;
   };
   pilotBlocks.filter(r => !r.fields[EXCLUDE_FLAG]).forEach(r => addBlock(r, true));
-  neighborBlocks.filter(r => !r.fields[EXCLUDE_FLAG]).forEach(r => addBlock(r, !!r.fields['Compost Pilot']));
+  addOnBlocks.filter(r => !r.fields[EXCLUDE_FLAG]).forEach(r => addBlock(r, !!r.fields['Compost Pilot']));
+  // Subscriptions on excluded placeholder/test blocks (e.g. 1300Walnut) are dropped too.
+  const excluded = new Set([...pilotBlocks, ...addOnBlocks].filter(r => r.fields[EXCLUDE_FLAG]).map(r => r.fields['Block Code']));
 
   const t = { active: 0, pending: 0, churned: 0, interested: 0 };
   const M = {};
   subs.forEach(r => {
     const f = r.fields, code = one(f['Block Code']) || '(no block)';
+    if (excluded.has(code)) return;
     const saidYes = /^yes/i.test(one(f[COMPOST_FORM]) || '');
     if (!f[COMPOST_ADDON]) { if (saidYes) { t.interested++; row(code).interested++; } return; }
     const cs = f['Contribution Status'];
@@ -454,10 +478,10 @@ function buildCompostModel({ pilotBlocks, neighborBlocks, subs, now }) {
   });
   const keys = Object.keys(M).sort();
   const months = keys.length ? monthRange(keys[0], nowMonth).map(month => ({ month, n: M[month] || 0 })) : [];
-  const blocks = Object.values(byCode).sort((a, b) => (b.pilot - a.pilot) || (b.active - a.active) || (b.neighbors - a.neighbors));
+  const blocks = Object.values(byCode).sort((a, b) => (b.pilot - a.pilot) || (b.active - a.active) || (b.blockCount - a.blockCount));
   const pilots = blocks.filter(b => b.pilot);
   return { blocks, months, totals: { ...t, addOns: t.active + t.pending + t.churned, revenue: t.active * COMPOST_PRICE,
-    pilotBlocks: pilots.length, neighbors: pilots.reduce((s, b) => s + b.neighbors, 0),
+    pilotBlocks: pilots.length, pilotAddOns: pilots.reduce((s, b) => s + b.blockCount, 0),
     activeOffPilot: blocks.filter(b => !b.pilot).reduce((s, b) => s + b.active, 0) } };
 }
 // @compute-end
@@ -594,18 +618,28 @@ let servicesLoaded = false;
 async function loadServices() {
   if (servicesLoaded) return; servicesLoaded = true;
   try {
-    // Server-side filter: Services as a joined string ≠ "Cleaning" → only rows with another service (~56 of 3,000+).
-    const subs = await fetchAT(T.subscribers, ['Services', 'Member Since'], '{Services}!="Cleaning"');
+    const flagFields = SERVICE_FLAGS.map(f => f.field);
+    // Server-side: only subscribers with at least one flag set (~50 of 3,000+), one request.
+    const subs = await fetchAT(T.subscribers, flagFields, `OR(${flagFields.map(f => `{${f}}`).join(', ')})`);
     const m = buildServicesModel(subs);
     const $ = id => document.getElementById(id);
-    $('s-count').textContent = fN(m.subscribers);
-    $('s-services').textContent = fN(m.services.length + 1);
-    $('s-services-sub').textContent = ['Cleaning', ...m.services.map(s => s.service)].join(' · ');
-    $('s-recent').textContent = fN(m.recent);
-    mkChart('chart-services', { type: 'bar', data: { labels: m.services.map(s => s.service), datasets: [barDS('Subscribers', m.services.map(s => s.n), C.s1, { barPercentage: 0.7 })] },
+    $('s-count').textContent = fN(m.interested);
+    $('s-top').textContent = m.top ? m.top.label : '—';
+    $('s-top-sub').textContent = m.top ? `${fN(m.top.n)} subscribers · ${pct(m.top.n, m.interested)} of interested` : '';
+    $('s-avg').textContent = m.interested ? m.avg.toFixed(1) : '—';
+    $('s-avg-sub').textContent = `across ${fN(m.newServices)} new services`;
+    $('s-multi').textContent = fN(m.multi);
+    mkChart('chart-services', { type: 'bar', data: { labels: m.services.map(x => x.label), datasets: [barDS('Subscribers', m.services.map(x => x.n), m.services.map(x => x.shipped ? C.ramp[0] : C.s1), { barPercentage: 0.7 })] },
       options: { ...baseOptions(), indexAxis: 'y', layout: { padding: { right: 40 } },
         scales: { x: { grid: { color: C.grid }, border: { display: false }, beginAtZero: true, ticks: { font: { size: 10 }, maxTicksLimit: 5, precision: 0 } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 }, color: C.ink } } },
-        plugins: { legend: { display: false }, datalabels: { display: true, anchor: 'end', align: 'end', offset: 4, font: { size: 10, weight: '500' }, color: C.ink2 } } } });
+        plugins: { legend: { display: false }, datalabels: { display: true, anchor: 'end', align: 'end', offset: 4, font: { size: 10, weight: '500' }, color: C.ink2 },
+          tooltip: { callbacks: { label: c => ` ${c.raw} subscribers` } } } } });
+    // Co-interest matrix: diagonal = that service alone, off-diagonal = both.
+    const labels = m.services.map(x => x.label);
+    let html = '<table class="data-table"><thead><tr><th></th>' + labels.map(l => `<th>${l}</th>`).join('') + '</tr></thead><tbody>';
+    labels.forEach(a => { html += `<tr><td>${a}</td>` + labels.map(b => { const v = m.pairs[a + '|' + b] || 0; return `<td style="${a === b ? 'font-weight:600' : v ? '' : 'color:var(--ink-3)'}">${v}</td>`; }).join('') + '</tr>'; });
+    html += '</tbody></table>';
+    $('services-table').innerHTML = html;
   } catch (err) {
     servicesLoaded = false; console.error(err);
     showError('err-services', err); document.getElementById('s-count').textContent = '—';
@@ -617,29 +651,29 @@ let compostLoaded = false;
 async function loadCompost() {
   if (compostLoaded) return; compostLoaded = true;
   try {
-    const blockFields = ['Block Code', 'Compost Pilot', 'Compost Neighbors', 'Compost Pickup Day', 'Total Subscribers', FUNDING_LEVEL, EXCLUDE_FLAG];
-    const [pilotBlocks, neighborBlocks, subs] = await Promise.all([
+    const blockFields = ['Block Code', 'Compost Pilot', COMPOST_COUNT, 'Compost Pickup Day', 'Total Subscribers', FUNDING_LEVEL, EXCLUDE_FLAG];
+    const [pilotBlocks, addOnBlocks, subs] = await Promise.all([
       fetchAT(T.blocks, blockFields, '{Compost Pilot}=1'),
-      fetchAT(T.blocks, blockFields, '{Compost Neighbors}!=""'),
+      fetchAT(T.blocks, blockFields, `{${COMPOST_COUNT}}>0`),
       // Add-on ticked, OR said yes on the signup form — ~60–80 of 3,300 rows, one request.
       fetchAT(T.activeSubs, [COMPOST_ADDON, COMPOST_ADDON_TS, COMPOST_FORM, 'Contribution Status', 'Block Code', 'Member Since'],
         `OR({${COMPOST_ADDON}}=1, FIND("Yes", {${COMPOST_FORM}}))`),
     ]);
-    const m = buildCompostModel({ pilotBlocks, neighborBlocks, subs, now: new Date().toISOString() });
+    const m = buildCompostModel({ pilotBlocks, addOnBlocks, subs, now: new Date().toISOString() });
     const t = m.totals, $ = id => document.getElementById(id);
     $('c-active').textContent = fN(t.active);
     $('c-active-sub').textContent = `≈ ${f$(t.revenue)}/mo at $${COMPOST_PRICE} each · ${fN(t.churned)} churned`;
     $('c-pending').textContent = fN(t.pending);
     $('c-interested').textContent = fN(t.interested);
     $('c-blocks').textContent = fN(t.pilotBlocks);
-    $('c-blocks-sub').textContent = `${fN(t.neighbors)} on the neighbor lists · ${fN(t.activeOffPilot)} active add-ons on blocks awaiting a bin`;
+    $('c-blocks-sub').textContent = `${fN(t.pilotAddOns)} add-ons on pilot blocks · ${fN(t.activeOffPilot)} active on blocks awaiting a bin`;
     const labels = m.months.map((x, i) => (m.months.length > 18 && i !== m.months.length - 1 && !/-(01|07)$/.test(x.month)) ? '' : shortM(x.month));
     mkChart('chart-compost', { type: 'bar', data: { labels, datasets: [barDS('Add-ons', m.months.map(x => x.n), C.s1, { barPercentage: 0.7, categoryPercentage: 0.8 })] },
       options: baseOptions({ plugins: { datalabels: { display: true, anchor: 'end', align: 'end', offset: 1, font: { size: 9, weight: '500' }, color: C.ink2, formatter: v => v || '' },
         tooltip: { callbacks: { title: items => shortM(m.months[items[0].dataIndex].month), label: c => ` ${c.raw} add-ons ticked` } } } }) });
-    let html = '<table class="data-table"><thead><tr><th>Block</th><th>Pilot</th><th>Active add-ons</th><th>Pending</th><th>Churned</th><th>Interested</th><th>Neighbor list</th><th>Pickup day</th><th>Subscribers</th><th>Funding level</th></tr></thead><tbody>';
-    m.blocks.forEach(b => { html += `<tr class="${b.pilot || b.active ? '' : 'dim'}"><td>${b.code}</td><td>${b.pilot ? '<span class="pill good">pilot</span>' : '<span class="pill dim">—</span>'}</td><td>${b.active}</td><td>${b.pending}</td><td>${b.churned}</td><td>${b.interested}</td><td>${b.neighbors}</td><td>${b.pickup || '—'}</td><td>${b.subs}</td><td>${b.level}</td></tr>`; });
-    html += `</tbody><tfoot><tr><td>Total</td><td>${t.pilotBlocks}</td><td>${t.active}</td><td>${t.pending}</td><td>${t.churned}</td><td>${t.interested}</td><td>${m.blocks.reduce((s, b) => s + b.neighbors, 0)}</td><td></td><td></td><td></td></tr></tfoot></table>`;
+    let html = '<table class="data-table"><thead><tr><th>Block</th><th>Pilot</th><th>Active add-ons</th><th>Pending</th><th>Churned</th><th>Interested</th><th>Block count</th><th>Pickup day</th><th>Subscribers</th><th>Funding level</th></tr></thead><tbody>';
+    m.blocks.forEach(b => { html += `<tr class="${b.pilot || b.active ? '' : 'dim'}"><td>${b.code}</td><td>${b.pilot ? '<span class="pill good">pilot</span>' : '<span class="pill dim">—</span>'}</td><td>${b.active}</td><td>${b.pending}</td><td>${b.churned}</td><td>${b.interested}</td><td>${b.blockCount}</td><td>${b.pickup || '—'}</td><td>${b.subs}</td><td>${b.level}</td></tr>`; });
+    html += `</tbody><tfoot><tr><td>Total</td><td>${t.pilotBlocks}</td><td>${t.active}</td><td>${t.pending}</td><td>${t.churned}</td><td>${t.interested}</td><td>${m.blocks.reduce((s, b) => s + b.blockCount, 0)}</td><td></td><td></td><td></td></tr></tfoot></table>`;
     $('compost-table').innerHTML = html;
   } catch (err) {
     compostLoaded = false; console.error(err);

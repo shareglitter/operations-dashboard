@@ -218,10 +218,7 @@ that produced this file.
   `fields: []` (whole-record) requests are refused, and `filterByFormula` may
   only reference allowed fields (so `{Email}="…"` can't be used as an oracle).
   **When a page needs a new field: add it to `ALLOW`, push, then ship the page
-  change.** `node pilots_check.js` fails with the 403 text if they drift. Still
-  allowed but worth removing: `Compost Neighbors` on Blocks (an email list the
-  compost tab only counts) — add a `Compost Neighbor Count` formula field in
-  Airtable, request that instead, and drop the list from `ALLOW`. The old
+  change.** `node pilots_check.js` fails with the 403 text if they drift. The old
   schema-probe fallback in `index.html` (`fields: []` on Active Subscriptions)
   now gets a 403 and logs a console warning, which is harmless.
 - **Drift health checks (not yet built).** The dashboard has had no systematic
@@ -266,15 +263,18 @@ fetch with a 403 naming the table):
   block of the subscription the lead became. The page attributes a lead to its
   direct `Block` link, else that lookup.
 - Blocks carries `Ambassadors` / `Ambassador Leads` links and the compost fields
-  `Compost Pilot` (checkbox), `Compost Neighbors` (email list), `Compost Pickup Day`.
-- Subscribers `Services` multi-select (Cleaning / Compost) is the only
-  service-interest signal **in Airtable**. Interest in leaves / snow / weeds /
-  trash cans is recorded in **ActiveCampaign**, not Airtable, so the tab can't
-  show it until something syncs it over (a Zap into a `Service Interest` table
-  or new `Services` options). The tab says so.
-
-Definitions (`buildAmbassadorModel` in `pilots.html`, pure functions between the
-`@compute-start` / `@compute-end` markers so they can be run from node):
+  `Compost Pilot` (checkbox), `Count Compost Add-On Active Subscriptions` (count),
+  `Compost Pickup Day`. (`Compost Neighbors`, a hand-kept email list, is no longer read.)
+- **Service interest** = flags on Subscribers synced from ActiveCampaign tags
+  (Oct 2026): `Snow opt-in`, `Leaves opt-in`, `TrashCan opt-in`, `Weeds opt-in`
+  (text, value "Yes"; one row carries a `||Yes||` sync artifact, still counts).
+  The older signup single-select `Compost Opt-In` is charted alongside for
+  reference (only values starting "Yes" count; "Not Right Now" doesn't) but is
+  **excluded from the headline tiles** because compost has shipped. One request:
+  `OR({Snow opt-in}, …, {Compost Opt-In})`; the "Not Right Now" rows come back
+  and are dropped client-side. No date on the flags, so no trend yet — if the
+  AC sync can carry the tag date, add a month series. `Services` is no longer
+  read or allow-listed.
 - **Converted** = the lead's linked subscriber has Contribution Status `Active`
   — confirmed as the definition, and it is also what triggers the commission
   payout. The hand-set `Status` on leads is ignored — it lags badly (Oct 2026: 36 of 43
@@ -296,16 +296,20 @@ Definitions (`buildAmbassadorModel` in `pilots.html`, pure functions between the
   param anyway. Buckets by `Contribution Status`: Active / pending (Pledged, Not
   Yet Paying · Pledged, Block Not Active · Invoice Sent) / churned. The month
   series keys on `Last Modified - Compost Add-On` (Apr 2026 = launch backfill).
-  "Interested, not added" = Subscribers `Compost Opt-In` answered "Yes, add
-  compost for $15 per month" with no add-on ticked. Revenue is estimated at $15
-  × active add-ons. An add-on on a block without the `Compost Pilot` flag means
-  the block is identified but has no bin yet (expected). **Don't use** `Compost Pilot` on Active Subscriptions (a
-  block lookup, marks everyone on a pilot block) or Subscribers `Services`
-  (older, 55 rows, overlaps but isn't the operational flag).
+  "Interested, not added" = Subscribers `Compost Opt-In` answered "Yes…" with no
+  add-on ticked. Revenue is estimated at $15 × active add-ons. Blocks carry
+  `Count Compost Add-On Active Subscriptions` (count field added Oct 2026): the
+  page uses it to find blocks with add-ons (`>0`) and shows it as a cross-check
+  column; it replaced the `Compost Neighbors` email list, which is no longer
+  requested or allow-listed. Subscriptions on `Exclude from Dashboard` blocks
+  (1300Walnut has one) are dropped, matching the ops page. An add-on on a block
+  without the `Compost Pilot` flag means the block is identified but has no bin
+  yet (expected). **Don't use** `Compost Pilot` on Active Subscriptions (a block
+  lookup, marks everyone on a pilot block).
 
 Known data gaps the page flags automatically: leads with no Block link, door
-shifts with no Doors Knocked, ambassadors with no activity (incl. a "Sunni Kann
-copy" test record — delete it or add an exclude checkbox to the table).
+shifts with no Doors Knocked, ambassadors with no activity (a test duplicate was
+deleted Oct 2026; new ambassadors show here until their first shift).
 
 `node pilots_check.js` pulls the same tables through the deployed proxy, runs
 the page's compute block and prints the model with consistency checks. Run it
