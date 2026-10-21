@@ -212,13 +212,18 @@ that produced this file.
   Action committed "Monthly data refresh 2026-10" on its own on Oct 2, 2026.
 - `financials_data.js` is hand-maintained — update it when new actuals land.
 - `index copy.html` is a stale backup; delete once you're confident in `index.html`.
-- **Proxy is unauthenticated — fix after the Pilots page is online.** `at-proxy.js`
-  takes `base` and `table` from the client and checks nothing, so anyone with the
-  site URL can read any table the token can see (Subscribers emails included).
-  Cheapest fix: an allow-list of `{base, table}` pairs the two pages actually
-  request, returning 403 for anything else; optionally also require a shared
-  header that the Softr embed passes. The audience is tight, which is why it's
-  tracked rather than blocking.
+- ~~Proxy is unauthenticated~~ — **fixed Oct 2026**: `at-proxy.js` now has an
+  allow-list (`ALLOW`) of base → table → fields derived from what `index.html`
+  and `pilots.html` actually request. Anything else is a 403 naming the reason;
+  `fields: []` (whole-record) requests are refused, and `filterByFormula` may
+  only reference allowed fields (so `{Email}="…"` can't be used as an oracle).
+  **When a page needs a new field: add it to `ALLOW`, push, then ship the page
+  change.** `node pilots_check.js` fails with the 403 text if they drift. Still
+  allowed but worth removing: `Compost Neighbors` on Blocks (an email list the
+  compost tab only counts) — add a `Compost Neighbor Count` formula field in
+  Airtable, request that instead, and drop the list from `ALLOW`. The old
+  schema-probe fallback in `index.html` (`fields: []` on Active Subscriptions)
+  now gets a 403 and logs a console warning, which is harmless.
 - **Drift health checks (not yet built).** The dashboard has had no systematic
   check that cached history, live fetches and Airtable still agree. Candidates,
   cheapest first: (a) a `--check` mode in `refresh.js` that rebuilds in memory
@@ -310,5 +315,6 @@ after any Airtable field change or edit to the compute block.
 
 - No build step, no framework, no npm install for the app itself — keep it that way.
 - The Airtable token must never appear in any committed file or client-side code.
-- All Airtable access from the browser goes through `at-proxy.js`, never direct.
+- All Airtable access from the browser goes through `at-proxy.js`, never direct —
+  and the proxy only serves the base/table/field combinations in its `ALLOW` list.
 - `data.js` / `health_data.js` are generated — regenerate via `refresh.js`, don't hand-edit.

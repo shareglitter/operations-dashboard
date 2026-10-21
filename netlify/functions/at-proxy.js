@@ -1,13 +1,78 @@
 /**
  * Airtable API proxy — keeps the token server-side.
- * 
- * Client sends POST with { table, fields, filter? }
+ *
+ * Client sends POST with { table, fields, filter?, base?, maxRecords? }
  * Function fetches all pages from AT and returns the combined records.
- * 
+ *
  * Set AIRTABLE_TOKEN in Netlify dashboard: Site settings → Environment variables
+ *
+ * ALLOW-LIST. The site URL is public, so the proxy only answers for the exact
+ * base / table / field combinations the two pages (index.html, pilots.html)
+ * actually request. Anything else — another table, an extra field such as
+ * Email, a filter formula that references a field not listed here — gets a 403
+ * naming what was refused. Field-level checks matter because Subscribers and
+ * Active Subscriptions hold emails, phones and Stripe ids; filterByFormula is
+ * checked too, or `{Email}="x"` would be an oracle for enumerating them.
+ *
+ * To let a page request a new field: add it below, push (Netlify redeploys the
+ * function), then ship the page change. `node pilots_check.js` fails loudly
+ * with the 403 text if the two drift apart.
  */
 
-const DEFAULT_BASE = 'appzuuUtAQVDg0YW1';
+const CLEANING_BASE = 'appzuuUtAQVDg0YW1';
+const OPSHUB_BASE = 'app87a9ZvrVJZiFuZ';
+const DEFAULT_BASE = CLEANING_BASE;
+
+const ALLOW = {
+  [CLEANING_BASE]: {
+    // Cleaning Log — index.html current-month cleans
+    tblaDXbhz6DEcytgh: ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris'],
+    // Blocks — index.html live block state; pilots.html ambassador + compost blocks
+    tblssvtXzgL200hSi: ['Block Code', 'Funding Type', 'Projects', 'Funding Level (with Override and Cap)', 'Total Subscribers',
+      'First Clean Date', 'Last Clean Date [Rollup]', 'Exclude from Dashboard',
+      'Ambassadors', 'Compost Pilot', 'Compost Neighbors', 'Compost Pickup Day'],
+    // index.html Metrics/Financials; pilots.html compost add-ons
+    'Active Subscriptions': ['Contribution Status', 'Share', 'Funding Type (from Block)', 'MRR', 'MRR (Share)', 'MRR (Donation)',
+      'Compost Add-On', 'Last Modified - Compost Add-On', 'Compost Opt-In (from Subscriber)', 'Block Code', 'Member Since'],
+    // pilots.html service interest
+    Subscribers: ['Services', 'Member Since'],
+    // pilots.html ambassadors
+    Ambassadors: ['Name', 'Status', 'Start Date', 'Assigned Blocks'],
+    'Ambassador Shifts': ['Date', 'Ambassadors', 'Hours Worked', 'Doors Knocked', 'Activity Type', 'Pay Due'],
+    'Ambassador Leads': ['Date of Contact', 'Ambassador Name', 'Block', 'Blocks (from Subscriber Record)', 'Status', 'Subscriber Record',
+      'Contribution Status (from Active Subscriptions) (from Subscriber Record)', 'Pledge (from Subscriber Record)', 'Commission Amount'],
+  },
+  [OPSHUB_BASE]: {
+    // Monthly Metrics — index.html President's Metrics tab
+    tblqg4SxBkQoliQrn: ['Name',
+      'Cleaning Health % - Goal', 'Cleaning Health % - Actual', 'Funded Blocks - Goal', 'Funded Blocks - Actual',
+      'Monthly Churn % - Goal', 'Monthly Churn % - Actual', 'Block Growth % - Goal', 'Block Growth % - Actual',
+      'Cleaner Churn % - Goal', 'Cleaner Churn % - Actual', 'Partnerships - Goal', 'Partnerships - Actual',
+      'Grants $ - Goal', 'Grants $ - Actual', 'Backlog Reduced % - Goal', 'Backlog Reduced % - Actual',
+      'Cleaning Equivalents - Goal', 'Cleaning Equivalents - Actual', 'Active Subscriptions - Goal', 'Active Subscriptions - Actual'],
+    // Initiatives
+    tblBvYsdfCuRKj4rF: ['Name', 'KPI', 'KPI (Goal)', 'KPI (Current)', '# of Projects Active', '# of Projects Total'],
+  },
+};
+const MAX_FILTER_LEN = 600;
+
+// Returns null if the request is allowed, else a human-readable reason.
+function denyReason({ base, table, fields, filter }) {
+  const tables = ALLOW[base];
+  if (!tables) return `base "${base}" is not served by this proxy`;
+  const allowed = tables[table];
+  if (!allowed) return `table "${table}" is not served by this proxy`;
+  if (!fields.length) return 'fields[] must name at least one field (no whole-record requests)';
+  const badFields = fields.filter(f => !allowed.includes(f));
+  if (badFields.length) return `field(s) not served for "${table}": ${badFields.join(', ')}`;
+  if (filter != null) {
+    if (typeof filter !== 'string' || filter.length > MAX_FILTER_LEN) return 'filter must be a string under 600 characters';
+    const refs = [...filter.matchAll(/\{([^}]*)\}/g)].map(m => m[1]);
+    const badRefs = refs.filter(r => !allowed.includes(r));
+    if (badRefs.length) return `filter references field(s) not served for "${table}": ${badRefs.join(', ')}`;
+  }
+  return null;
+}
 
 exports.handler = async (event) => {
   // CORS headers for local dev
@@ -38,13 +103,20 @@ exports.handler = async (event) => {
   }
 
   const { table, fields, filter, base, maxRecords } = body;
-  // fields may be [] — that's a deliberate "give me every field" request used when
-  // probing a table whose field names we're unsure of. Only undefined/null is an error.
   if (!table || !Array.isArray(fields)) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'table (string) and fields (array) required' }) };
   }
 
   const baseId = base || DEFAULT_BASE;
+
+  const reason = denyReason({ base: baseId, table, fields, filter });
+  if (reason) {
+    return {
+      statusCode: 403,
+      headers,
+      body: JSON.stringify({ error: `Not in proxy allow-list — ${reason}. Add it to netlify/functions/at-proxy.js if a page needs it.`, base: baseId, table })
+    };
+  }
 
   // Airtable allows 5 req/s per base and hands out a 30s lockout on breach. A
   // single dashboard load fans out to ~8 sequential pages, so on a 429/5xx we
@@ -109,3 +181,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+exports.denyReason = denyReason;   // exported for tests
+exports.ALLOW = ALLOW;
