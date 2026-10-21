@@ -30,12 +30,12 @@ const ALLOW = {
     // Blocks — index.html live block state; pilots.html ambassador + compost blocks
     tblssvtXzgL200hSi: ['Block Code', 'Funding Type', 'Projects', 'Funding Level (with Override and Cap)', 'Total Subscribers',
       'First Clean Date', 'Last Clean Date [Rollup]', 'Exclude from Dashboard',
-      'Ambassadors', 'Compost Pilot', 'Compost Neighbors', 'Compost Pickup Day'],
+      'Ambassadors', 'Compost Pilot', 'Compost Pickup Day', 'Count Compost Add-On Active Subscriptions'],
     // index.html Metrics/Financials; pilots.html compost add-ons
     'Active Subscriptions': ['Contribution Status', 'Share', 'Funding Type (from Block)', 'MRR', 'MRR (Share)', 'MRR (Donation)',
       'Compost Add-On', 'Last Modified - Compost Add-On', 'Compost Opt-In (from Subscriber)', 'Block Code', 'Member Since'],
-    // pilots.html service interest
-    Subscribers: ['Services', 'Member Since'],
+    // pilots.html service interest — opt-in flags synced from ActiveCampaign (Oct 2026)
+    Subscribers: ['Snow opt-in', 'Leaves opt-in', 'TrashCan opt-in', 'Weeds opt-in', 'Compost opt-in', 'Member Since'],
     // pilots.html ambassadors
     Ambassadors: ['Name', 'Status', 'Start Date', 'Assigned Blocks'],
     'Ambassador Shifts': ['Date', 'Ambassadors', 'Hours Worked', 'Doors Knocked', 'Activity Type', 'Pay Due'],
