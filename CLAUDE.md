@@ -208,9 +208,8 @@ or lands on a high-traffic embed. Full field-by-field recipe is in the chat hist
 that produced this file.
 
 **Other loose ends:**
-- Verify the `AIRTABLE_TOKEN` GitHub secret is set — the monthly workflow (now at
-  `.github/workflows/`) needs it. Before the workflow was moved there it never ran,
-  so `data.js` history may only be as fresh as the last manual `node refresh.js`.
+- ~~Verify the `AIRTABLE_TOKEN` GitHub secret is set~~ — confirmed working: the
+  Action committed "Monthly data refresh 2026-10" on its own on Oct 2, 2026.
 - `financials_data.js` is hand-maintained — update it when new actuals land.
 - `index copy.html` is a stale backup; delete once you're confident in `index.html`.
 - **Proxy is unauthenticated — fix after the Pilots page is online.** `at-proxy.js`
