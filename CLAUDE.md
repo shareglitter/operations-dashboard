@@ -213,6 +213,99 @@ that produced this file.
   so `data.js` history may only be as fresh as the last manual `node refresh.js`.
 - `financials_data.js` is hand-maintained — update it when new actuals land.
 - `index copy.html` is a stale backup; delete once you're confident in `index.html`.
+- **Proxy is unauthenticated — fix after the Pilots page is online.** `at-proxy.js`
+  takes `base` and `table` from the client and checks nothing, so anyone with the
+  site URL can read any table the token can see (Subscribers emails included).
+  Cheapest fix: an allow-list of `{base, table}` pairs the two pages actually
+  request, returning 403 for anything else; optionally also require a shared
+  header that the Softr embed passes. The audience is tight, which is why it's
+  tracked rather than blocking.
+- **Drift health checks (not yet built).** The dashboard has had no systematic
+  check that cached history, live fetches and Airtable still agree. Candidates,
+  cheapest first: (a) a `--check` mode in `refresh.js` that rebuilds in memory
+  and diffs every month against `data.js` (`reportShifts()` already does this
+  for block months; extend to cleaning totals) without writing; (b) assert
+  `CHURN_DAYS` / `GRANT_PROJECTS` / `BAG_MAP` are byte-identical between
+  `refresh.js` and `index.html`; (c) a smoke test that the deployed proxy
+  answers for every table + field list the pages request (a renamed field is a
+  silent 422 in the browser console today); (d) `pilots_check.js` already covers
+  the pilot tables — see "Pilots Dashboard". Post results to the same Slack
+  webhook as the KPIs so a human sees them.
+
+## Pilots Dashboard (`pilots.html`)
+
+Sister page for the president's **pilot programs** — ambassadors, new service
+interest (leaves / snow / weeds / trash cans), compost. Kept out of `index.html`
+on purpose: the ops page is calibrated for a 48k-row log with baked history,
+while the pilot tables are tens of rows that change weekly. Same Netlify site,
+same `at-proxy.js`, same styles (copied, not shared — extract to a stylesheet if
+the two pages keep moving together). Embed in Softr as
+`https://<site>.netlify.app/pilots.html`.
+
+**Data model: everything is fetched live on load, nothing is baked.** No
+`refresh.js` involvement, no `*_data.js`. Ambassadors tab = 4 requests on load;
+Service Interest and Compost tabs lazy-load on first open (1 and 3 requests).
+All use server-side `filterByFormula` so the big tables (Blocks, Subscribers)
+return only the handful of relevant rows. Same 15-min localStorage cache as
+the ops page, keyed `pilots:at:`.
+
+Pilot tables (cleaning base, referenced by **name** — renaming one breaks the
+fetch with a 403 naming the table):
+- `Ambassadors` — one row per ambassador: Name, Status, Start Date, Hourly Rate,
+  links to Assigned Blocks / Shifts / Leads, rollup totals.
+- `Ambassador Shifts` — Date, Ambassadors, Hours Worked, Doors Knocked, Activity
+  Type (Door Knocking / Event / Admin / Training), Pay Due, Paid.
+- `Ambassador Leads` — Date of Contact, Ambassador Name, Block, Neighbor
+  name/email, Status (hand-set), Subscriber Record link, lookups of the
+  subscriber's `Contribution Status` and `Pledge`, Commission Amount.
+- `Ambassador Leads` also has `Blocks (from Subscriber Record)` (Oct 2026): the
+  block of the subscription the lead became. The page attributes a lead to its
+  direct `Block` link, else that lookup.
+- Blocks carries `Ambassadors` / `Ambassador Leads` links and the compost fields
+  `Compost Pilot` (checkbox), `Compost Neighbors` (email list), `Compost Pickup Day`.
+- Subscribers `Services` multi-select (Cleaning / Compost) is the only
+  service-interest signal **in Airtable**. Interest in leaves / snow / weeds /
+  trash cans is recorded in **ActiveCampaign**, not Airtable, so the tab can't
+  show it until something syncs it over (a Zap into a `Service Interest` table
+  or new `Services` options). The tab says so.
+
+Definitions (`buildAmbassadorModel` in `pilots.html`, pure functions between the
+`@compute-start` / `@compute-end` markers so they can be run from node):
+- **Converted** = the lead's linked subscriber has Contribution Status `Active`
+  — confirmed as the definition, and it is also what triggers the commission
+  payout. The hand-set `Status` on leads is ignored — it lags badly (Oct 2026: 36 of 43
+  read "Lead" while 24 were Active). **Pending** = Invoice Sent / Pledged, Not
+  Yet Paying / Pledged, Block Not Active. **Lost** = anything else with a
+  subscriber link.
+- **MRR added** = sum of Active leads' `Pledge` × 13⁄12 (pledge is per 4-week
+  cycle) — same factor as the pledge work in `refresh.js`.
+- **Program cost** = Σ `Pay Due` on shifts + Σ `Commission Amount` on leads.
+  Cost per conversion and payback (cost ÷ MRR) follow from those.
+- Hours are bucketed Door knocking / Events & meetings / Admin & training.
+- Assigned-block funding levels are a **live snapshot**; there is no history, so
+  "did the block move up a tier" can't be shown yet. **Tabled Oct 2026.** If it
+  becomes the KPI, have `refresh.js` record per-block funding level monthly.
+- **Compost source of truth = the `Compost Add-On` checkbox on Active
+  Subscriptions** (confirmed with the user, Oct 2026). One filtered request
+  (`OR({Compost Add-On}=1, FIND("Yes", {Compost Opt-In (from Subscriber)}))`,
+  ~60–80 rows) — no Airtable view needed, and the proxy doesn't take a `view`
+  param anyway. Buckets by `Contribution Status`: Active / pending (Pledged, Not
+  Yet Paying · Pledged, Block Not Active · Invoice Sent) / churned. The month
+  series keys on `Last Modified - Compost Add-On` (Apr 2026 = launch backfill).
+  "Interested, not added" = Subscribers `Compost Opt-In` answered "Yes, add
+  compost for $15 per month" with no add-on ticked. Revenue is estimated at $15
+  × active add-ons. An add-on on a block without the `Compost Pilot` flag means
+  the block is identified but has no bin yet (expected). **Don't use** `Compost Pilot` on Active Subscriptions (a
+  block lookup, marks everyone on a pilot block) or Subscribers `Services`
+  (older, 55 rows, overlaps but isn't the operational flag).
+
+Known data gaps the page flags automatically: leads with no Block link, door
+shifts with no Doors Knocked, ambassadors with no activity (incl. a "Sunni Kann
+copy" test record — delete it or add an exclude checkbox to the table).
+
+`node pilots_check.js` pulls the same tables through the deployed proxy, runs
+the page's compute block and prints the model with consistency checks. Run it
+after any Airtable field change or edit to the compute block.
 
 ## Conventions
 

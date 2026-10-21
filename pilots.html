@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glitter Pilots Dashboard</title>
+<!--
+  Sister page to index.html (the Ops Dashboard). Same Netlify site, same Airtable
+  proxy, same look — but a different data model: the pilot tables are tiny (tens
+  of rows), so everything here is fetched LIVE on load and nothing is baked into a
+  data.js. No refresh.js involvement. See CLAUDE.md → "Pilots Dashboard".
+
+  Styles mirror index.html on purpose (they're small). If both pages keep moving
+  in lockstep, extract them to a shared stylesheet; until then a copy keeps the
+  ops page untouched.
+-->
+<!-- Chart.js MUST load before its plugins — the plugin UMD builds read global.Chart.helpers at parse time -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<style>
+  /* Chart color roles. Categorical slots validated (CVD + contrast) with the
+     dataviz palette validator; keep the slot ORDER — it is the colorblind-safety
+     mechanism. Light mode only: this page lives inside a light Softr iframe next
+     to index.html, which is also light-only. */
+  :root {
+    --surface: #fff; --page: #f7f6f3;
+    --ink: #1a1a18; --ink-2: #6b6b66; --ink-3: #9b9b96; --rule: #e0dfd8; --grid: #f0eee8;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
+    --ramp-250: #86b6ef; --ramp-350: #5598e7; --ramp-450: #2a78d6; --ramp-550: #1c5cab;
+    --good: #008300; --warn: #b8960b; --bad: #b03a2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--page); color: var(--ink); min-height: 100vh; padding: 28px 24px 40px; }
+  .header { margin-bottom: 20px; }
+  .header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+  .header p { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+  .tab-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+  .tab-btn { font-size: 13px; font-weight: 500; padding: 7px 18px; border-radius: 8px; border: 1px solid #d0cfc8; background: var(--surface); color: var(--ink-2); cursor: pointer; transition: all 0.15s; }
+  .tab-btn.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .sister-link { margin-left: auto; font-size: 12px; color: var(--ink-2); text-decoration: none; border-bottom: 1px dotted #d0cfc8; }
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat { background: var(--surface); border: 0.5px solid var(--rule); border-radius: 10px; padding: 14px 16px; text-align: center; }
+  .stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-2); margin-bottom: 6px; }
+  .stat-value { font-size: 26px; font-weight: 600; letter-spacing: -0.5px; min-height: 32px; }
+  .stat-sub { font-size: 11px; color: var(--ink-3); margin-top: 3px; }
+  .chart-card { background: var(--surface); border: 0.5px solid var(--rule); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .chart-sub { font-size: 12px; color: var(--ink-3); margin-bottom: 16px; }
+  .canvas-wrap { position: relative; height: 280px; }
+  .canvas-wrap.short { height: 200px; }
+  .legend { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .half-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .half-row .chart-card { margin-bottom: 0; }
+  .loading { display: flex; align-items: center; justify-content: center; height: 200px; color: var(--ink-3); font-size: 13px; gap: 8px; }
+  .stat-value .loading { height: 32px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { background: #fff8f7; border: 0.5px solid #f0c8c4; border-radius: 10px; padding: 16px 20px; font-size: 13px; color: #7a2e28; margin-bottom: 16px; display: none; }
+  .footer { font-size: 11px; color: #b0b0a8; text-align: right; margin-top: 12px; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .data-table { width: 100%; font-size: 11px; border-collapse: collapse; }
+  .data-table th { background: #f0efe8; padding: 8px 6px; text-align: right; font-weight: 600; font-size: 10px; white-space: nowrap; position: sticky; top: 0; }
+  .data-table th:first-child { text-align: left; }
+  .data-table td { padding: 6px; text-align: right; border-bottom: 1px solid #f0efe8; }
+  .data-table td:first-child { text-align: left; font-weight: 500; white-space: nowrap; }
+  .data-table tr.dim td { color: var(--ink-3); }
+  .data-table tfoot td { font-weight: 600; background: #f0efe8; padding: 8px 6px; }
+  .table-wrap { max-height: 520px; overflow: auto; border-radius: 10px; border: 0.5px solid var(--rule); }
+  .table-note { font-size: 10px; color: var(--ink-3); margin-top: 8px; font-style: italic; }
+  .notes { font-size: 12px; color: var(--ink-2); line-height: 1.55; }
+  .notes ul { padding-left: 18px; margin-top: 6px; }
+  .notes li { margin-bottom: 4px; }
+  .notes b { color: var(--ink); }
+  .flag { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 10px; background: #fff7e0; color: #7a5a00; margin-right: 6px; vertical-align: middle; }
+  .pill { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+  .pill.good { background: #e6f4e6; color: #0a5a0a; }
+  .pill.warn { background: #fff7e0; color: #7a5a00; }
+  .pill.bad { background: #fdebe9; color: #7a2e28; }
+  .pill.dim { background: #f0efe8; color: var(--ink-2); }
+  @media (max-width: 640px) {
+    body { padding: 20px 16px 32px; }
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+    .half-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Glitter Pilots Dashboard</h1>
+  <p id="header-sub">Ambassadors · Service interest · Compost — fetched live from Airtable on each visit</p>
+</div>
+
+<div class="tab-row">
+  <button class="tab-btn active" data-tab="ambassadors" onclick="switchTab('ambassadors')">Ambassadors</button>
+  <button class="tab-btn" data-tab="services" onclick="switchTab('services')">Service Interest</button>
+  <button class="tab-btn" data-tab="compost" onclick="switchTab('compost')">Compost</button>
+  <a class="sister-link" href="index.html">Ops Dashboard →</a>
+</div>
+
+<!-- ========== AMBASSADORS TAB ========== -->
+<div id="tab-ambassadors" class="tab-content active">
+  <div class="error" id="err-ambassadors"></div>
+
+  <div class="stat-row">
+    <div class="stat"><div class="stat-label">Ambassadors</div><div class="stat-value" id="a-amb"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub" id="a-amb-sub">active</div></div>
+    <div class="stat"><div class="stat-label">Hours logged</div><div class="stat-value" id="a-hours">—</div><div class="stat-sub" id="a-hours-sub"></div></div>
+    <div class="stat"><div class="stat-label">Leads</div><div class="stat-value" id="a-leads">—</div><div class="stat-sub" id="a-leads-sub"></div></div>
+    <div class="stat"><div class="stat-label">Converted</div><div class="stat-value" id="a-conv" style="color:var(--good)">—</div><div class="stat-sub" id="a-conv-sub">active paying subscribers</div></div>
+  </div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-label">MRR added</div><div class="stat-value" id="a-mrr">—</div><div class="stat-sub" id="a-mrr-sub"></div></div>
+    <div class="stat"><div class="stat-label">Program cost</div><div class="stat-value" id="a-cost">—</div><div class="stat-sub" id="a-cost-sub"></div></div>
+    <div class="stat"><div class="stat-label">Cost per conversion</div><div class="stat-value" id="a-cpc">—</div><div class="stat-sub">shift pay + commission ÷ converted</div></div>
+    <div class="stat"><div class="stat-label">Payback</div><div class="stat-value" id="a-payback">—</div><div class="stat-sub">months of added MRR to recoup cost</div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Hours per month, by activity</div>
+    <div class="chart-sub">From Ambassador Shifts · total hours labelled above each month</div>
+    <div class="canvas-wrap short"><canvas id="chart-hours"></canvas></div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--series-1)"></div> Door knocking</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--series-2)"></div> Events &amp; meetings</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--series-3)"></div> Admin &amp; training</div>
+    </div>
+  </div>
+
+  <div class="half-row">
+    <div class="chart-card">
+      <div class="chart-title">Leads vs. converted, per month</div>
+      <div class="chart-sub">By date of contact · converted = linked subscriber is Active</div>
+      <div class="canvas-wrap short"><canvas id="chart-leads"></canvas></div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--ramp-250)"></div> Leads</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--ramp-550)"></div> Converted</div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">MRR added, per month</div>
+      <div class="chart-sub">Active pledges from that month's leads · pledge per 4-week cycle × 13⁄12</div>
+      <div class="canvas-wrap short"><canvas id="chart-mrr"></canvas></div>
+    </div>
+  </div>
+
+  <div class="half-row">
+    <div class="chart-card">
+      <div class="chart-title">Lead funnel</div>
+      <div class="chart-sub" id="funnel-sub">Every lead ever logged, by where it stands today</div>
+      <div class="canvas-wrap short"><canvas id="chart-funnel"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Definitions &amp; data notes</div>
+      <div class="notes" id="amb-notes"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">By ambassador</div>
+    <div class="chart-sub">Everything they've logged since their start date</div>
+    <div class="table-wrap" id="amb-table"></div>
+    <div class="table-note">Pay = sum of Pay Due on shifts. Commission = sum of Commission Amount on leads. Cost / conv = (pay + commission) ÷ converted. MRR = active pledges × 13⁄12.</div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Assigned blocks — funding snapshot</div>
+    <div class="chart-sub">Blocks linked to an ambassador, as they stand right now (0.25 = monthly … 1.0 = weekly). No history yet — see notes.</div>
+    <div class="table-wrap" id="blocks-table"></div>
+  </div>
+</div>
+
+<!-- ========== SERVICE INTEREST TAB ========== -->
+<div id="tab-services" class="tab-content">
+  <div class="error" id="err-services"></div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-label">Subscribers with a non-cleaning service</div><div class="stat-value" id="s-count"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub">Subscribers → Services</div></div>
+    <div class="stat"><div class="stat-label">Services on offer</div><div class="stat-value" id="s-services">—</div><div class="stat-sub" id="s-services-sub"></div></div>
+    <div class="stat"><div class="stat-label">Added last 90 days</div><div class="stat-value" id="s-recent">—</div><div class="stat-sub">by Member Since</div></div>
+    <div class="stat"><div class="stat-label">Leaves · Snow · Weeds · Cans</div><div class="stat-value" style="color:var(--ink-3)">n/a</div><div class="stat-sub">not yet captured in Airtable</div></div>
+  </div>
+  <div class="half-row">
+    <div class="chart-card">
+      <div class="chart-title">Interest by service</div>
+      <div class="chart-sub">Subscribers whose Services includes something other than Cleaning</div>
+      <div class="canvas-wrap short"><canvas id="chart-services"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">What this tab needs</div>
+      <div class="notes">
+        Today the only service-interest signal in Airtable is the <b>Services</b> multi-select on
+        Subscribers, and its options are <b>Cleaning</b> and <b>Compost</b>. Nothing records interest in
+        leaf, snow, weed or trash-can service yet, so this tab can't show it.
+        <ul>
+          <li><b>Lightest fix:</b> add <i>Leaves</i>, <i>Snow</i>, <i>Weeds</i>, <i>Trash cans</i> as options on
+            Services and expose them on the signup / account form. This chart picks up new options automatically.</li>
+          <li><b>If interest ≠ subscription:</b> a small <i>Service Interest</i> table (subscriber, service, date, source,
+            block) keeps "curious" separate from "paying", and gives a per-month series + a by-zone view.</li>
+          <li>Either way, the request is one filtered fetch; no refresh script changes.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== COMPOST TAB ========== -->
+<div id="tab-compost" class="tab-content">
+  <div class="error" id="err-compost"></div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-label">Active compost add-ons</div><div class="stat-value" id="c-active" style="color:var(--good)"><div class="loading"><div class="spinner"></div></div></div><div class="stat-sub" id="c-active-sub">Active Subscriptions → Compost Add-On, status Active</div></div>
+    <div class="stat"><div class="stat-label">Pending</div><div class="stat-value" id="c-pending">—</div><div class="stat-sub">add-on ticked, pledged but not yet paying</div></div>
+    <div class="stat"><div class="stat-label">Interested, not added</div><div class="stat-value" id="c-interested">—</div><div class="stat-sub">said "Yes" on the form, no add-on yet</div></div>
+    <div class="stat"><div class="stat-label">Pilot blocks</div><div class="stat-value" id="c-blocks">—</div><div class="stat-sub" id="c-blocks-sub">Blocks → Compost Pilot</div></div>
+  </div>
+  <div class="half-row">
+    <div class="chart-card">
+      <div class="chart-title">Compost add-ons per month</div>
+      <div class="chart-sub">By the month the add-on box was last ticked · Apr '26 is the launch backfill</div>
+      <div class="canvas-wrap short"><canvas id="chart-compost"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Reading this tab</div>
+      <div class="notes">
+        <ul>
+          <li><b>Source of truth</b> is the <i>Compost Add-On</i> checkbox on Active Subscriptions, fetched with a server-side filter
+            (one request, ~60 rows). Status buckets follow <i>Contribution Status</i>: Active · pending (Pledged, Not Yet Paying / Pledged,
+            Block Not Active) · churned (everything else).</li>
+          <li><b>Interested, not added</b> = the subscriber answered "Yes, add compost…" on the signup form (<i>Compost Opt-In</i> on
+            Subscribers) but no subscription has the add-on ticked. That's the follow-up list.</li>
+          <li><b>Revenue</b> is estimated at $15 / month per active add-on; the MRR field on subscriptions is the whole pledge, not compost alone.</li>
+          <li><b>Pilot blocks</b> come from the <i>Compost Pilot</i> checkbox on Blocks; <i>Compost Neighbors</i> is the hand-kept email list
+            there and is shown for comparison. A block with add-ons but no pilot flag is identified but has no bin yet — expected during rollout.</li>
+          <li>No bin-count, pickup-log or weight data exists yet. A <i>Compost Pickups</i> table (block, date, bins, est. lbs) would give this tab a
+            diversion series like the ops page's bags chart.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">By block</div>
+    <div class="chart-sub">Add-ons per block against the pilot flag and the hand-kept neighbor list</div>
+    <div class="table-wrap" id="compost-table"></div>
+  </div>
+</div>
+
+<div class="footer" id="footer-ts"></div>
+
+<script>
+// ── Config ──
+// No API token in client code — all Airtable calls go through the Netlify proxy.
+// When opened from a local file or dev server, fall back to the deployed proxy
+// (it allows any origin) so the page can be developed without `netlify dev`.
+const PROXY_URL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) || location.protocol === 'file:'
+  ? 'https://glitter-ops-dashboard.netlify.app/.netlify/functions/at-proxy'
+  : '/.netlify/functions/at-proxy';
+
+// Pilot tables are referenced by NAME (they have no stable IDs in CLAUDE.md yet);
+// renaming one in Airtable breaks the fetch with a 403 that names the table.
+const T = {
+  ambassadors: 'Ambassadors',
+  shifts: 'Ambassador Shifts',
+  leads: 'Ambassador Leads',
+  blocks: 'tblssvtXzgL200hSi',
+  subscribers: 'Subscribers',
+  activeSubs: 'Active Subscriptions',
+};
+const EXCLUDE_FLAG = 'Exclude from Dashboard';   // same checkbox the ops page honors
+const FUNDING_LEVEL = 'Funding Level (with Override and Cap)';
+const CS_FIELD = 'Contribution Status (from Active Subscriptions) (from Subscriber Record)';
+const PLEDGE_FIELD = 'Pledge (from Subscriber Record)';
+// Block attribution for a lead: the direct `Block` link, else the block of the
+// subscription it converted into (lookup added Oct 2026).
+const LEAD_BLOCK_LOOKUP = 'Blocks (from Subscriber Record)';
+const MRR_FACTOR = 13 / 12;   // pledge is per 4-week cycle; 13 cycles a year. Same as refresh.js.
+const COMPOST_ADDON = 'Compost Add-On';                       // checkbox on Active Subscriptions — the source of truth
+const COMPOST_ADDON_TS = 'Last Modified - Compost Add-On';     // when the box was last ticked
+const COMPOST_FORM = 'Compost Opt-In (from Subscriber)';       // signup-form answer, looked up from Subscribers
+const COMPOST_PRICE = 15;                                      // $/month per add-on, for the revenue estimate
+const PENDING_STATUSES = new Set(['Invoice Sent', 'Pledged, Not Yet Paying', 'Pledged, Block Not Active']);
+
+const C = {
+  s1: '#2a78d6', s2: '#eb6834', s3: '#1baf7a',
+  ramp: ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab'],
+  grid: '#f0eee8', ink: '#1a1a18', ink2: '#6b6b66', ink3: '#9b9b96', surface: '#fff',
+};
+
+let charts = {};
+Chart.register(ChartDataLabels);
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+Chart.defaults.color = C.ink2;
+
+// ── Helpers ──
+const shortM = m => { const ms = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const [y, mo] = m.split('-'); return `${ms[+mo - 1]} '${y.slice(2)}`; };
+const fN = n => (n || 0).toLocaleString();
+const f$ = n => n >= 10000 ? `$${(n / 1000).toFixed(1)}K` : `$${Math.round(n).toLocaleString()}`;
+const pct = (a, b) => b ? `${Math.round(a / b * 100)}%` : '—';
+const one = v => Array.isArray(v) ? v[0] : v;
+const sumArr = v => (Array.isArray(v) ? v : [v]).reduce((s, x) => s + (+x || 0), 0);
+
+// ── Airtable via proxy, with the same 15-min localStorage cache as index.html ──
+const AT_CACHE_TTL_MS = 15 * 60 * 1000;
+function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { t, v } = JSON.parse(raw);
+    if (Date.now() - t > AT_CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    return v;
+  } catch { return null; }
+}
+function cacheSet(key, v) {
+  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), v })); } catch { /* quota / private mode */ }
+}
+async function atProxy(payload) {
+  const cacheKey = 'pilots:at:' + JSON.stringify(payload);
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+  const res = await fetch(PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const raw = await res.text();
+  let data; try { data = JSON.parse(raw); } catch { data = null; }
+  if (!res.ok) throw new Error(`Proxy ${res.status} — table "${payload.table}" — ${(data && data.error) || raw || '(empty response)'}`);
+  cacheSet(cacheKey, data);
+  return data;
+}
+const fetchAT = async (table, fields, filter) => (await atProxy({ table, fields, filter: filter || undefined })).records;
+
+// @compute-start — pure functions, no DOM. Tested from node (see CLAUDE.md).
+const monthOf = d => (d || '').slice(0, 7);
+function monthRange(from, to) {
+  const out = [];
+  let [y, m] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  while (y < ty || (y === ty && m <= tm)) { out.push(`${y}-${String(m).padStart(2, '0')}`); if (++m > 12) { m = 1; y++; } }
+  return out;
+}
+const activityBucket = a => a === 'Door Knocking' ? 'door' : a === 'Event' ? 'event' : 'other';
+
+// Where a lead stands TODAY, from the linked subscriber's live contribution
+// status — not the hand-set `Status` field, which lags (36 of 43 leads still
+// read "Lead" while 24 have an Active subscription).
+function leadStage(f) {
+  if (!f['Subscriber Record']) return 'lead';
+  const cs = one(f[CS_FIELD]);
+  if (cs === 'Active') return 'active';
+  if (PENDING_STATUSES.has(cs)) return 'pending';
+  return 'lost';
+}
+
+function buildAmbassadorModel({ ambassadors, shifts, leads, blocks, now }) {
+  const nowMonth = monthOf(now || new Date().toISOString());
+  const byAmb = {};
+  ambassadors.forEach(r => {
+    byAmb[r.id] = { id: r.id, name: r.fields.Name || '(unnamed)', status: r.fields.Status || '', start: r.fields['Start Date'] || '',
+      assigned: (r.fields['Assigned Blocks'] || []).length, shifts: 0, hours: 0, doors: 0, pay: 0, leads: 0, active: 0, pending: 0, pledgeCycle: 0, commission: 0 };
+  });
+  const amb = id => byAmb[id] || (byAmb[id] = { id, name: '(deleted ambassador)', status: '', start: '', assigned: 0, shifts: 0, hours: 0, doors: 0, pay: 0, leads: 0, active: 0, pending: 0, pledgeCycle: 0, commission: 0 });
+
+  const M = {};
+  const mon = k => M[k] || (M[k] = { month: k, shifts: 0, hours: 0, door: 0, event: 0, other: 0, doors: 0, pay: 0, leads: 0, active: 0, pending: 0, pledgeCycle: 0, commission: 0 });
+
+  let shiftsNoDoors = 0;
+  shifts.forEach(r => {
+    const f = r.fields, m = mon(monthOf(f.Date || r.createdTime)), a = amb(one(f.Ambassadors));
+    const h = +f['Hours Worked'] || 0, pay = +f['Pay Due'] || 0, doors = +f['Doors Knocked'] || 0;
+    const bucket = activityBucket(f['Activity Type']);
+    if (bucket === 'door' && !f['Doors Knocked']) shiftsNoDoors++;
+    m.shifts++; m.hours += h; m[bucket] += h; m.doors += doors; m.pay += pay;
+    a.shifts++; a.hours += h; a.doors += doors; a.pay += pay;
+  });
+
+  const stages = { lead: 0, pending: 0, active: 0, lost: 0 };
+  const stagePledge = { lead: 0, pending: 0, active: 0, lost: 0 };
+  let leadsNoBlock = 0, staleStatus = 0;
+  leads.forEach(r => {
+    const f = r.fields, m = mon(monthOf(f['Date of Contact'] || r.createdTime)), a = amb(one(f['Ambassador Name']));
+    const stage = leadStage(f), pledge = sumArr(f[PLEDGE_FIELD]), comm = +f['Commission Amount'] || 0;
+    stages[stage]++; stagePledge[stage] += pledge;
+    if (!f.Block && !f[LEAD_BLOCK_LOOKUP]) leadsNoBlock++;
+    if (stage === 'active' && f.Status === 'Lead') staleStatus++;
+    m.leads++; m.commission += comm; a.leads++; a.commission += comm;
+    if (stage === 'active') { m.active++; m.pledgeCycle += pledge; a.active++; a.pledgeCycle += pledge; }
+    if (stage === 'pending') { m.pending++; a.pending++; }
+  });
+
+  const keys = Object.keys(M).sort();
+  const months = keys.length ? monthRange(keys[0], nowMonth > keys[keys.length - 1] ? nowMonth : keys[keys.length - 1]).map(k => mon(k)) : [];
+  months.forEach(m => { m.mrr = m.pledgeCycle * MRR_FACTOR; });
+
+  const ambList = Object.values(byAmb).map(a => ({ ...a, mrr: a.pledgeCycle * MRR_FACTOR, cost: a.pay + a.commission,
+    costPerConv: a.active ? (a.pay + a.commission) / a.active : null }))
+    .sort((a, b) => (b.active - a.active) || (b.leads - a.leads) || (b.hours - a.hours) || a.name.localeCompare(b.name));
+
+  const t = { ambassadors: ambassadors.length, activeAmb: ambassadors.filter(r => r.fields.Status === 'Active').length,
+    withActivity: ambList.filter(a => a.shifts || a.leads).length,
+    shifts: shifts.length, hours: 0, doors: 0, pay: 0, leads: leads.length, active: stages.active, pending: stages.pending, lost: stages.lost, commission: 0 };
+  months.forEach(m => { t.hours += m.hours; t.doors += m.doors; t.pay += m.pay; t.commission += m.commission; });
+  t.pledgeCycle = stagePledge.active; t.pendingPledgeCycle = stagePledge.pending;
+  t.mrr = t.pledgeCycle * MRR_FACTOR; t.cost = t.pay + t.commission;
+  t.costPerConv = t.active ? t.cost / t.active : null;
+  t.paybackMonths = t.mrr ? t.cost / t.mrr : null;
+  t.firstMonth = months.length ? months[0].month : null;
+
+  // Assigned-block snapshot: skip the same excluded placeholder/test blocks the ops page skips.
+  const blockRows = blocks.filter(r => !r.fields[EXCLUDE_FLAG]).map(r => {
+    const f = r.fields, last = f['Last Clean Date [Rollup]'] || null;
+    const days = last ? Math.floor((Date.parse(now || new Date().toISOString()) - Date.parse(last)) / 86400000) : null;
+    return { code: f['Block Code'] || r.id, ambassadors: (f.Ambassadors || []).map(id => amb(id).name), level: +f[FUNDING_LEVEL] || 0,
+      subs: +f['Total Subscribers'] || 0, type: f['Funding Type'] || '', lastClean: last, daysSince: days };
+  }).sort((a, b) => a.ambassadors.join().localeCompare(b.ambassadors.join()) || b.level - a.level);
+
+  const quality = { leadsNoBlock, shiftsNoDoors, staleStatus,
+    idle: ambList.filter(a => !a.shifts && !a.leads).map(a => a.name) };
+  return { months, ambassadors: ambList, totals: t, stages, stagePledge, blocks: blockRows, quality };
+}
+
+function buildServicesModel(subs, now) {
+  const counts = {};
+  let recent = 0;
+  const cutoff = new Date(Date.parse(now || new Date().toISOString()) - 90 * 86400000).toISOString().slice(0, 10);
+  subs.forEach(r => {
+    const svcs = (r.fields.Services || []).filter(s => s !== 'Cleaning');
+    svcs.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+    if (svcs.length && (r.fields['Member Since'] || r.createdTime || '') >= cutoff) recent++;
+  });
+  const services = Object.entries(counts).map(([service, n]) => ({ service, n })).sort((a, b) => b.n - a.n);
+  return { services, subscribers: subs.filter(r => (r.fields.Services || []).some(s => s !== 'Cleaning')).length, recent };
+}
+
+function buildCompostModel({ pilotBlocks, neighborBlocks, subs, now }) {
+  const nowMonth = monthOf(now || new Date().toISOString());
+  const byCode = {};
+  const row = code => byCode[code] || (byCode[code] = { code, pilot: false, neighbors: 0, pickup: '', subs: 0, level: 0, active: 0, pending: 0, churned: 0, interested: 0 });
+  const addBlock = (r, isPilot) => {
+    const f = r.fields, b = row(f['Block Code'] || r.id);
+    b.pilot = b.pilot || isPilot; b.neighbors = (f['Compost Neighbors'] || []).length;
+    b.pickup = f['Compost Pickup Day'] || ''; b.subs = +f['Total Subscribers'] || 0; b.level = +f[FUNDING_LEVEL] || 0;
+  };
+  pilotBlocks.filter(r => !r.fields[EXCLUDE_FLAG]).forEach(r => addBlock(r, true));
+  neighborBlocks.filter(r => !r.fields[EXCLUDE_FLAG]).forEach(r => addBlock(r, !!r.fields['Compost Pilot']));
+
+  const t = { active: 0, pending: 0, churned: 0, interested: 0 };
+  const M = {};
+  subs.forEach(r => {
+    const f = r.fields, code = one(f['Block Code']) || '(no block)';
+    const saidYes = /^yes/i.test(one(f[COMPOST_FORM]) || '');
+    if (!f[COMPOST_ADDON]) { if (saidYes) { t.interested++; row(code).interested++; } return; }
+    const cs = f['Contribution Status'];
+    const bucket = cs === 'Active' ? 'active' : PENDING_STATUSES.has(cs) ? 'pending' : 'churned';
+    t[bucket]++; row(code)[bucket]++;
+    const k = monthOf(f[COMPOST_ADDON_TS] || f['Member Since'] || r.createdTime);
+    if (k <= nowMonth) M[k] = (M[k] || 0) + 1;
+  });
+  const keys = Object.keys(M).sort();
+  const months = keys.length ? monthRange(keys[0], nowMonth).map(month => ({ month, n: M[month] || 0 })) : [];
+  const blocks = Object.values(byCode).sort((a, b) => (b.pilot - a.pilot) || (b.active - a.active) || (b.neighbors - a.neighbors));
+  const pilots = blocks.filter(b => b.pilot);
+  return { blocks, months, totals: { ...t, addOns: t.active + t.pending + t.churned, revenue: t.active * COMPOST_PRICE,
+    pilotBlocks: pilots.length, neighbors: pilots.reduce((s, b) => s + b.neighbors, 0),
+    activeOffPilot: blocks.filter(b => !b.pilot).reduce((s, b) => s + b.active, 0) } };
+}
+// @compute-end
+
+// ── Chart scaffolding (thin marks, recessive grid, hover tooltips, no dual axes) ──
+function baseOptions(extra = {}) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    layout: { padding: { top: 18 } },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      datalabels: { display: false },
+      tooltip: { backgroundColor: C.ink, titleFont: { size: 11 }, bodyFont: { size: 11 }, padding: 8, cornerRadius: 6, displayColors: true, boxPadding: 3 },
+      ...(extra.plugins || {}),
+    },
+    scales: {
+      x: { stacked: !!extra.stacked, grid: { display: false }, border: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0 } },
+      y: { stacked: !!extra.stacked, grid: { color: C.grid }, border: { display: false }, beginAtZero: true, ticks: { font: { size: 10 }, maxTicksLimit: 5, callback: extra.yFmt || (v => v) } },
+    },
+  };
+}
+const barDS = (label, data, color, more = {}) => ({ label, data, backgroundColor: color, barPercentage: 0.6, categoryPercentage: 0.7, borderRadius: 4, ...more });
+// Totals above a stack: label only on the topmost dataset so each month gets one number.
+function stackTotals(totals, topIdx) {
+  return { display: ctx => ctx.datasetIndex === topIdx, anchor: 'end', align: 'end', offset: 2, font: { size: 10, weight: '500' }, color: C.ink2,
+    formatter: (v, ctx) => totals[ctx.dataIndex] ? totals[ctx.dataIndex] : '' };
+}
+function mkChart(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), cfg); }
+
+// ── Ambassadors tab ──
+async function loadAmbassadors() {
+  const now = new Date().toISOString();
+  const [ambassadors, shifts, leads, blocks] = await Promise.all([
+    fetchAT(T.ambassadors, ['Name', 'Status', 'Start Date', 'Assigned Blocks']),
+    fetchAT(T.shifts, ['Date', 'Ambassadors', 'Hours Worked', 'Doors Knocked', 'Activity Type', 'Pay Due']),
+    fetchAT(T.leads, ['Date of Contact', 'Ambassador Name', 'Block', LEAD_BLOCK_LOOKUP, 'Status', 'Subscriber Record', CS_FIELD, PLEDGE_FIELD, 'Commission Amount']),
+    // Server-side filter: only blocks with an ambassador link (≈30 rows, 1 request instead of ~20 pages).
+    fetchAT(T.blocks, ['Block Code', 'Ambassadors', FUNDING_LEVEL, 'Total Subscribers', 'Funding Type', EXCLUDE_FLAG, 'Last Clean Date [Rollup]'], '{Ambassadors}!=""'),
+  ]);
+  renderAmbassadors(buildAmbassadorModel({ ambassadors, shifts, leads, blocks, now }));
+}
+
+function renderAmbassadors(model) {
+  const { months, totals: t, stages, stagePledge, quality } = model;
+  const $ = id => document.getElementById(id);
+  const fmtMo = n => n == null ? '—' : n < 1 ? '<1 mo' : `${n.toFixed(n < 10 ? 1 : 0)} mo`;
+
+  $('a-amb').textContent = fN(t.activeAmb);
+  $('a-amb-sub').textContent = `${t.withActivity} of ${t.ambassadors} have logged a shift or lead`;
+  $('a-hours').textContent = fN(Math.round(t.hours * 10) / 10);
+  $('a-hours-sub').textContent = `${fN(t.shifts)} shifts${t.firstMonth ? ` since ${shortM(t.firstMonth)}` : ''}`;
+  $('a-leads').textContent = fN(t.leads);
+  $('a-leads-sub').textContent = `${fN(t.doors)} doors knocked · ${t.doors ? pct(t.leads, t.doors) : '—'} of doors`;
+  $('a-conv').textContent = fN(t.active);
+  $('a-conv-sub').textContent = `${pct(t.active, t.leads)} of leads · ${fN(t.pending)} pending · ${fN(t.lost)} lost`;
+  $('a-mrr').textContent = f$(t.mrr);
+  $('a-mrr-sub').textContent = `${f$(t.pledgeCycle)} per cycle pledged · ${f$(t.pendingPledgeCycle)} more pending`;
+  $('a-cost').textContent = f$(t.cost);
+  $('a-cost-sub').textContent = `${f$(t.pay)} shift pay + ${f$(t.commission)} commission`;
+  $('a-cpc').textContent = t.costPerConv == null ? '—' : f$(t.costPerConv);
+  $('a-payback').textContent = fmtMo(t.paybackMonths);
+
+  const labels = months.map(m => shortM(m.month));
+  const gap = { borderColor: C.surface, borderWidth: { top: 2 }, borderRadius: 0 };   // 2px surface gap between stacked segments
+
+  // Hours by activity (stacked)
+  const hoursTotals = months.map(m => m.hours ? Math.round(m.hours * 10) / 10 : 0);
+  mkChart('chart-hours', { type: 'bar', data: { labels, datasets: [
+      barDS('Door knocking', months.map(m => m.door), C.s1, gap),
+      barDS('Events & meetings', months.map(m => m.event), C.s2, gap),
+      barDS('Admin & training', months.map(m => m.other), C.s3, { ...gap, borderRadius: 4 }),
+    ] }, options: baseOptions({ stacked: true, plugins: { datalabels: stackTotals(hoursTotals, 2),
+      tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw} h` } } } }) });
+
+  // Leads vs converted (grouped)
+  mkChart('chart-leads', { type: 'bar', data: { labels, datasets: [
+      barDS('Leads', months.map(m => m.leads), C.ramp[0], { barPercentage: 0.8, categoryPercentage: 0.6 }),
+      barDS('Converted', months.map(m => m.active), C.ramp[3], { barPercentage: 0.8, categoryPercentage: 0.6 }),
+    ] }, options: baseOptions({ plugins: { datalabels: { display: true, anchor: 'end', align: 'end', offset: 1, font: { size: 10, weight: '500' }, color: C.ink2, formatter: v => v || '' } } }) });
+
+  // MRR added (single series)
+  mkChart('chart-mrr', { type: 'bar', data: { labels, datasets: [barDS('MRR added', months.map(m => Math.round(m.mrr)), C.s1)] },
+    options: baseOptions({ yFmt: v => `$${v}`, plugins: { datalabels: { display: true, anchor: 'end', align: 'end', offset: 1, font: { size: 10, weight: '500' }, color: C.ink2, formatter: v => v ? `$${v}` : '' },
+      tooltip: { callbacks: { label: c => ` $${c.raw}/mo` } } } }) });
+
+  // Funnel: ordinal single-hue ramp, direct labels (relief for the light step)
+  const stageRows = [
+    ['Logged as lead', t.leads, C.ramp[0]],
+    ['Linked to a subscriber', t.leads - stages.lead, C.ramp[1]],
+    ['Pending (invoice sent / pledged)', stages.pending, C.ramp[2]],
+    ['Converted (Active)', stages.active, C.ramp[3]],
+  ];
+  mkChart('chart-funnel', { type: 'bar', data: { labels: stageRows.map(s => s[0]), datasets: [{ label: 'Leads', data: stageRows.map(s => s[1]), backgroundColor: stageRows.map(s => s[2]), barPercentage: 0.7, categoryPercentage: 0.8, borderRadius: 4 }] },
+    options: { ...baseOptions(), indexAxis: 'y', layout: { padding: { right: 56 } },
+      scales: { x: { grid: { color: C.grid }, border: { display: false }, beginAtZero: true, ticks: { font: { size: 10 }, maxTicksLimit: 5, precision: 0 } },
+                y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 }, color: C.ink } } },
+      plugins: { legend: { display: false }, datalabels: { display: true, anchor: 'end', align: 'end', offset: 4, font: { size: 10, weight: '500' }, color: C.ink2,
+        formatter: (v, ctx) => ctx.dataIndex === 0 ? v : `${v} · ${pct(v, t.leads)}` },
+        tooltip: { callbacks: { label: c => ` ${c.raw} leads` } } } } });
+  $('funnel-sub').textContent = `Every lead ever logged, by where it stands today · ${stages.lost} lost (churned / never converted) · $${Math.round(stagePledge.active)}/cycle active, $${Math.round(stagePledge.pending)} pending`;
+
+  // Notes
+  const q = quality, notes = [];
+  notes.push('<b>Converted</b> = the lead\'s linked subscriber has Contribution Status <i>Active</i> — the same test that triggers the commission payout. The hand-set <i>Status</i> field on leads is not used' + (q.staleStatus ? ` — ${q.staleStatus} converted lead${q.staleStatus === 1 ? ' still reads' : 's still read'} "Lead" there.` : '.'));
+  notes.push('<b>MRR</b> = pledge per 4-week cycle × 13⁄12, matching the Financials tab on the ops page. Pending pledges are not counted until Active.');
+  notes.push('<b>Cost</b> = Pay Due on shifts + Commission Amount on leads. Materials, mileage and management time are not in Airtable.');
+  if (q.leadsNoBlock) notes.push(`<span class="flag">data</span>${q.leadsNoBlock} of ${t.leads} leads have neither a <i>Block</i> link nor a subscription block, so block-level attribution is partial.`);
+  if (q.shiftsNoDoors) notes.push(`<span class="flag">data</span>${q.shiftsNoDoors} door-knocking shift${q.shiftsNoDoors === 1 ? ' has' : 's have'} no <i>Doors Knocked</i>, so the doors total is a floor.`);
+  if (q.idle.length) notes.push(`<span class="flag">data</span>No shifts or leads yet for: ${q.idle.join(', ')}. (A test duplicate here should be deleted or given an exclude flag.)`);
+  notes.push('<b>Not yet measurable:</b> whether assigned blocks move up a funding tier. Funding levels are a live snapshot (table below); the monthly refresh would need to record them per block to show before/after.');
+  $('amb-notes').innerHTML = '<ul>' + notes.map(n => `<li>${n}</li>`).join('') + '</ul>';
+
+  // By-ambassador table
+  let html = '<table class="data-table"><thead><tr><th>Ambassador</th><th>Status</th><th>Start</th><th>Blocks</th><th>Shifts</th><th>Hours</th><th>Doors</th><th>Leads</th><th>Pending</th><th>Converted</th><th>MRR</th><th>Pay</th><th>Commission</th><th>Cost / conv</th></tr></thead><tbody>';
+  model.ambassadors.forEach(a => {
+    html += `<tr class="${a.shifts || a.leads ? '' : 'dim'}"><td>${a.name}</td><td>${a.status || '—'}</td><td>${a.start || '—'}</td><td>${a.assigned}</td><td>${a.shifts}</td><td>${a.hours}</td><td>${a.doors}</td><td>${a.leads}</td><td>${a.pending}</td><td>${a.active}</td><td>${f$(a.mrr)}</td><td>${f$(a.pay)}</td><td>${f$(a.commission)}</td><td>${a.costPerConv == null ? '—' : f$(a.costPerConv)}</td></tr>`;
+  });
+  html += `</tbody><tfoot><tr><td>Total</td><td></td><td></td><td>${model.blocks.length}</td><td>${t.shifts}</td><td>${Math.round(t.hours * 10) / 10}</td><td>${t.doors}</td><td>${t.leads}</td><td>${t.pending}</td><td>${t.active}</td><td>${f$(t.mrr)}</td><td>${f$(t.pay)}</td><td>${f$(t.commission)}</td><td>${t.costPerConv == null ? '—' : f$(t.costPerConv)}</td></tr></tfoot></table>`;
+  $('amb-table').innerHTML = html;
+
+  // Assigned blocks snapshot
+  const tier = l => l >= 1 ? '<span class="pill good">weekly</span>' : l >= 0.5 ? '<span class="pill good">2×/mo</span>' : l >= 0.25 ? '<span class="pill warn">monthly</span>' : '<span class="pill bad">unfunded</span>';
+  html = '<table class="data-table"><thead><tr><th>Block</th><th>Ambassador</th><th>Type</th><th>Funding level</th><th>Tier</th><th>Subscribers</th><th>Last clean</th><th>Days ago</th></tr></thead><tbody>';
+  model.blocks.forEach(b => {
+    html += `<tr><td>${b.code}</td><td style="text-align:left">${b.ambassadors.join(', ')}</td><td>${b.type}</td><td>${b.level}</td><td>${tier(b.level)}</td><td>${b.subs}</td><td>${b.lastClean || '—'}</td><td>${b.daysSince == null ? '—' : b.daysSince}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  $('blocks-table').innerHTML = html;
+}
+
+// ── Service Interest tab ──
+let servicesLoaded = false;
+async function loadServices() {
+  if (servicesLoaded) return; servicesLoaded = true;
+  try {
+    // Server-side filter: Services as a joined string ≠ "Cleaning" → only rows with another service (~56 of 3,000+).
+    const subs = await fetchAT(T.subscribers, ['Services', 'Member Since'], '{Services}!="Cleaning"');
+    const m = buildServicesModel(subs);
+    const $ = id => document.getElementById(id);
+    $('s-count').textContent = fN(m.subscribers);
+    $('s-services').textContent = fN(m.services.length + 1);
+    $('s-services-sub').textContent = ['Cleaning', ...m.services.map(s => s.service)].join(' · ');
+    $('s-recent').textContent = fN(m.recent);
+    mkChart('chart-services', { type: 'bar', data: { labels: m.services.map(s => s.service), datasets: [barDS('Subscribers', m.services.map(s => s.n), C.s1, { barPercentage: 0.7 })] },
+      options: { ...baseOptions(), indexAxis: 'y', layout: { padding: { right: 40 } },
+        scales: { x: { grid: { color: C.grid }, border: { display: false }, beginAtZero: true, ticks: { font: { size: 10 }, maxTicksLimit: 5, precision: 0 } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11 }, color: C.ink } } },
+        plugins: { legend: { display: false }, datalabels: { display: true, anchor: 'end', align: 'end', offset: 4, font: { size: 10, weight: '500' }, color: C.ink2 } } } });
+  } catch (err) {
+    servicesLoaded = false; console.error(err);
+    showError('err-services', err); document.getElementById('s-count').textContent = '—';
+  }
+}
+
+// ── Compost tab ──
+let compostLoaded = false;
+async function loadCompost() {
+  if (compostLoaded) return; compostLoaded = true;
+  try {
+    const blockFields = ['Block Code', 'Compost Pilot', 'Compost Neighbors', 'Compost Pickup Day', 'Total Subscribers', FUNDING_LEVEL, EXCLUDE_FLAG];
+    const [pilotBlocks, neighborBlocks, subs] = await Promise.all([
+      fetchAT(T.blocks, blockFields, '{Compost Pilot}=1'),
+      fetchAT(T.blocks, blockFields, '{Compost Neighbors}!=""'),
+      // Add-on ticked, OR said yes on the signup form — ~60–80 of 3,300 rows, one request.
+      fetchAT(T.activeSubs, [COMPOST_ADDON, COMPOST_ADDON_TS, COMPOST_FORM, 'Contribution Status', 'Block Code', 'Member Since'],
+        `OR({${COMPOST_ADDON}}=1, FIND("Yes", {${COMPOST_FORM}}))`),
+    ]);
+    const m = buildCompostModel({ pilotBlocks, neighborBlocks, subs, now: new Date().toISOString() });
+    const t = m.totals, $ = id => document.getElementById(id);
+    $('c-active').textContent = fN(t.active);
+    $('c-active-sub').textContent = `≈ ${f$(t.revenue)}/mo at $${COMPOST_PRICE} each · ${fN(t.churned)} churned`;
+    $('c-pending').textContent = fN(t.pending);
+    $('c-interested').textContent = fN(t.interested);
+    $('c-blocks').textContent = fN(t.pilotBlocks);
+    $('c-blocks-sub').textContent = `${fN(t.neighbors)} on the neighbor lists · ${fN(t.activeOffPilot)} active add-ons on blocks awaiting a bin`;
+    const labels = m.months.map((x, i) => (m.months.length > 18 && i !== m.months.length - 1 && !/-(01|07)$/.test(x.month)) ? '' : shortM(x.month));
+    mkChart('chart-compost', { type: 'bar', data: { labels, datasets: [barDS('Add-ons', m.months.map(x => x.n), C.s1, { barPercentage: 0.7, categoryPercentage: 0.8 })] },
+      options: baseOptions({ plugins: { datalabels: { display: true, anchor: 'end', align: 'end', offset: 1, font: { size: 9, weight: '500' }, color: C.ink2, formatter: v => v || '' },
+        tooltip: { callbacks: { title: items => shortM(m.months[items[0].dataIndex].month), label: c => ` ${c.raw} add-ons ticked` } } } }) });
+    let html = '<table class="data-table"><thead><tr><th>Block</th><th>Pilot</th><th>Active add-ons</th><th>Pending</th><th>Churned</th><th>Interested</th><th>Neighbor list</th><th>Pickup day</th><th>Subscribers</th><th>Funding level</th></tr></thead><tbody>';
+    m.blocks.forEach(b => { html += `<tr class="${b.pilot || b.active ? '' : 'dim'}"><td>${b.code}</td><td>${b.pilot ? '<span class="pill good">pilot</span>' : '<span class="pill dim">—</span>'}</td><td>${b.active}</td><td>${b.pending}</td><td>${b.churned}</td><td>${b.interested}</td><td>${b.neighbors}</td><td>${b.pickup || '—'}</td><td>${b.subs}</td><td>${b.level}</td></tr>`; });
+    html += `</tbody><tfoot><tr><td>Total</td><td>${t.pilotBlocks}</td><td>${t.active}</td><td>${t.pending}</td><td>${t.churned}</td><td>${t.interested}</td><td>${m.blocks.reduce((s, b) => s + b.neighbors, 0)}</td><td></td><td></td><td></td></tr></tfoot></table>`;
+    $('compost-table').innerHTML = html;
+  } catch (err) {
+    compostLoaded = false; console.error(err);
+    showError('err-compost', err); document.getElementById('c-active').textContent = '—';
+  }
+}
+
+// ── Tabs / errors / init ──
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelectorAll('.tab-row .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (tab === 'services') loadServices();
+  if (tab === 'compost') loadCompost();
+}
+function showError(id, err) {
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.textContent = `Live data fetch failed (${err.message}). Nothing is cached for this page — reload to retry.`;
+}
+
+async function init() {
+  try {
+    await loadAmbassadors();
+    document.getElementById('header-sub').textContent =
+      `Ambassadors · Service interest · Compost — live from Airtable · Updated ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+    document.getElementById('footer-ts').textContent = 'All figures fetched live from Airtable on load (15-min browser cache). No monthly refresh involved.';
+  } catch (err) {
+    console.error(err);
+    showError('err-ambassadors', err);
+    document.getElementById('a-amb').textContent = '—';
+    document.getElementById('amb-notes').textContent = '';
+  }
+}
+init();
+</script>
+</body>
+</html>

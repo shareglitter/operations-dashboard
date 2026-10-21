@@ -10,9 +10,12 @@ Single source of truth for cleaning operations, revenue, block growth, and churn
 
 **Data Table tab:** Combined monthly summary, exportable as CSV.
 
+**Pilots Dashboard (`pilots.html`):** sister page for the pilot programs — ambassadors (hours, leads, conversions, MRR added, cost per conversion), service interest, compost. Fetched live from Airtable on every visit; nothing baked in. Embed it in Softr the same way, at `/pilots.html`.
+
 ## Architecture
 
 - `index.html` — The app. Chart.js, vanilla JS, no build step.
+- `pilots.html` — Pilots Dashboard. Same stack and proxy; all data live, no cache file. `node pilots_check.js` sanity-checks its numbers.
 - `data.js` — Historical monthly data (completed months only). Updated monthly.
 - `refresh.js` — Node script that pulls from Airtable and regenerates data.js.
 - On page load, the app fetches the **current month's** data live from Airtable API (cleaning log + blocks). Historical data loads instantly from the cached data.js.
@@ -69,6 +72,7 @@ Add a "Custom Code" or "Embed" block to your Softr page with the Netlify URL as 
 ```html
 <iframe src="https://YOUR-SITE.netlify.app" width="100%" height="900" frameborder="0"></iframe>
 ```
+For the Pilots Dashboard use `https://YOUR-SITE.netlify.app/pilots.html` on its own Softr page.
 
 ## Airtable API token
 
