@@ -166,13 +166,6 @@
 <!-- ========== BLOCK HEALTH TAB ========== -->
 <div id="tab-health" class="tab-content">
 
-  <!-- OVERDUE CHECK (live) -->
-  <div class="chart-card">
-    <div class="chart-title">Funded Blocks Overdue for a Clean <span id="overdue-count" style="color:#b03a2e"></span></div>
-    <div class="chart-sub">Live · neighbor-funded blocks (core and sponsored) whose last clean is older than their cadence plus a 7-day grace, or that have never been cleaned</div>
-    <div id="overdue-list" style="font-size:12px;color:#9b9b96;overflow-x:auto">Loading…</div>
-  </div>
-
   <!-- TREND (one point per refresh snapshot, from health_history.js) -->
   <div style="margin-bottom:32px">
     <h2 style="font-size:16px;font-weight:600;margin-bottom:4px">Core Blocks — Trend</h2>
@@ -256,6 +249,15 @@
       <div class="chart-title">Subscriber Tier vs Cleaning Level — Project/Grant Blocks</div>
       <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count</div>
       <div id="heatmap-proj"></div>
+    </div>
+  </div>
+
+  <!-- OVERDUE CHECK (live) — detail list, kept at the bottom -->
+  <div style="margin-top:32px">
+    <h2 style="font-size:16px;font-weight:600;margin-bottom:4px">Funded Blocks Overdue for a Clean <span id="overdue-count" style="color:#b03a2e"></span></h2>
+    <p style="font-size:12px;color:#9b9b96;margin-bottom:16px">Live · neighbor-funded blocks (core and sponsored) whose last clean is older than their cadence plus a 7-day grace, or that have never been cleaned</p>
+    <div class="chart-card">
+      <div id="overdue-list" style="font-size:12px;color:#9b9b96;overflow-x:auto">Loading…</div>
     </div>
   </div>
 </div>
