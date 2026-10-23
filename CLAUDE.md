@@ -211,24 +211,29 @@ arrived in Sep 2026, so the Jul/Aug points include ~2 placeholder blocks.
 
 The tab shows a **Trend** section above the snapshot: four tiles (core total,
 funded, Tier 1–3, Tier 4–6) with deltas vs the previous and first snapshot, and
-four clustered bars per snapshot — Tier 1–2 / Tier 3 / Tier 4 / Tier 5–6
-(`renderHealthTrend`, `TREND_GROUPS` in `index.html`). The snapshot headings
-read "as of <latest history date>" — the same run writes both files, so the
-dates agree. The six-colour tier palette fails the colourblind check (Tier 3
-yellow vs Tier 4 orange), which is why the trend uses four validated colours
-instead of six series.
+four clustered bars per snapshot — **funded blocks by cleaning level**
+(Weekly / 3/4 / 2/4 / 1/4, the heatmap's column sums minus Not Funded; the
+not-funded column is deliberately left off) with the count printed above
+each bar (`renderHealthTrend`, `TREND_GROUPS` in `index.html`). The snapshot
+headings read "as of <latest history date>" — the same run writes both files,
+so the dates agree. The six-colour tier palette fails the colourblind check
+(Tier 3 yellow vs Tier 4 orange); the trend uses four validated colours.
 
-**Open question (Oct 2026): what Tier 4 and Tier 5 actually mean.** The page
-legend says Tier 4 = "0 cleans, has pledges" and Tier 5 = "0 cleans, had
-previous cleans". The snapshots say otherwise: in every snapshot since Aug,
-Tier 5 equals the not-funded blocks with 1+ in `Subscriber Tier` (±1), and
-Tier 4 + Tier 6 equals the not-funded blocks with 0 subscribers — i.e. Tier 5
-looks like "has subscriber records but not funded" and Tier 4/6 split the
-zero-subscriber blocks by whether they were ever cleaned. Live check Oct 23:
-of 371 not-funded core blocks with 1+ `Total Subscribers`, only 28 have an
-Active subscription, so those "subscribers" are mostly lapsed/pledged. Needs
-the `Block Tier (calc)` formula read in Airtable; until then the trend labels
-for Tier 4 and Tier 5–6 say only "no cleans".
+**`Block Tier (calc)` formula (read Oct 2026)** — `L` = `Funding Level (via
+Pledges)`, `subs` = `Total Subscribers` (all subscriber records, not just
+Active), "cleaned" = has linked Cleaning Log rows:
+
+- Tier 1: L ≥ 1 and subs ≥ 5
+- Tier 2: (L ≥ 0.5 and subs ≥ 5) or (L ≥ 1 and subs < 5)
+- Tier 3: `Funding Level (with Override and Cap)` ≥ 0.25, or (L ≥ 0.5 and subs < 5)
+- Tier 4: L < 0.25, subs ≥ 1, never cleaned — pledges but no cleans
+- Tier 5: L < 0.25, ever cleaned — churned, **with or without pledges** (Oct
+  2026 live: ~110 of ~380 still carry subscriber records)
+- Tier 6: everything else — L < 0.25, no subscribers, never cleaned
+
+So the page legend was right. Tier 5 is *not* "no pledges": about 30% of it
+still has subscriber records. (The snapshot identity "Tier 5 = not-funded with
+1+ subs" that looked structural was a coincidence — don't lean on it.)
 
 ## Next steps / deferred
 

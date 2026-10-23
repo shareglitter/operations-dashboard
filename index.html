@@ -179,8 +179,8 @@
     </div>
 
     <div class="chart-card">
-      <div class="chart-title">Core Blocks by Tier Group, per Snapshot</div>
-      <div class="chart-sub">Each cluster is one refresh of the Blocks table. Tier definitions are listed under the snapshot below.</div>
+      <div class="chart-title">Funded Core Blocks by Cleaning Level, per Snapshot</div>
+      <div class="chart-sub">Each cluster is one refresh of the Blocks table · same columns as the heatmap below · not-funded blocks left off</div>
       <div class="canvas-wrap"><canvas id="chart-core-trend"></canvas></div>
     </div>
   </div>
@@ -208,7 +208,7 @@
         <div><strong style="color:#3b9b6a">Tier 2</strong> — 4/4 cleans with less than 5 subs, or 2-3 cleans with 5+ subs. Nearly there.</div>
         <div><strong style="color:#b8960b">Tier 3</strong> — 2-3 cleans with less than 5 subs, or 1 clean per month. Growth opportunity.</div>
         <div><strong style="color:#d97706">Tier 4</strong> — 0 Cleans, but has Pledges. Needs outreach to get to $50.</div>
-        <div><strong style="color:#b03a2e">Tier 5</strong> — 0 Cleans, but had previous cleans. Churned somewhere.</div>
+        <div><strong style="color:#b03a2e">Tier 5</strong> — 0 Cleans now, but was cleaned before. Churned; may still carry pledges.</div>
         <div><strong style="color:#1a1a18">Tier 6</strong> — 0 Cleans, 0 pledges. Dormant or new setup.</div>
 
       </div>
@@ -228,8 +228,8 @@
     <p style="font-size:12px;color:#9b9b96;margin-bottom:16px">Funded by project owners and grants (SSNE, SSW, TCB, etc.)</p>
 
     <div class="chart-card">
-      <div class="chart-title">Project Blocks by Tier Group, per Snapshot</div>
-      <div class="chart-sub">Same grouping as the core trend above. Project blocks move only when a grant starts or ends.</div>
+      <div class="chart-title">Funded Project Blocks by Cleaning Level, per Snapshot</div>
+      <div class="chart-sub">Same columns as the core trend above. Project blocks move only when a grant starts or ends.</div>
       <div class="canvas-wrap short"><canvas id="chart-proj-trend"></canvas></div>
     </div>
 
@@ -997,14 +997,14 @@ function renderHealthTab() {
 // refresh date, same shape as HEALTH_DATA. Snapshots are dated when they were
 // taken — the scheduled run on the 2nd reads as end-of-prior-month — and every
 // run is kept, so manual mid-month runs just add a point.
-// Four clustered bars per snapshot. Colours validated for colour-blind separation
-// (green / blue / orange / purple); the six-tier palette on the snapshot chart
-// below is not, which is why tiers are grouped here.
+// Four clustered bars per snapshot: funded blocks by cleaning level, i.e. the
+// column sums of the heatmap below minus the Not Funded column. Colours are
+// validated for colour-blind separation (green / blue / orange / purple).
 const TREND_GROUPS = [
-  { key: 'weekly',  label: 'Tier 1–2 · weekly / near-weekly cleans', tiers: ['Tier 1', 'Tier 2'], color: '#1a7a4a' },
-  { key: 'partial', label: 'Tier 3 · partial cleans', tiers: ['Tier 3'], color: '#2563eb' },
-  { key: 'tier4',   label: 'Tier 4 · no cleans', tiers: ['Tier 4'], color: '#d97706' },
-  { key: 'tier56',  label: 'Tier 5–6 · no cleans', tiers: ['Tier 5', 'Tier 6'], color: '#8b5cf6' },
+  { key: 'weekly', label: 'Weekly (100%)',    col: 'Block Tier 1 (Weekly)', color: '#1a7a4a' },
+  { key: 'q3',     label: '3/4 cycle (75%)',  col: 'Block Tier 2 (3/4)',    color: '#2563eb' },
+  { key: 'q2',     label: '2/4 cycle (50%)',  col: 'Block Tier 3 (2/4)',    color: '#d97706' },
+  { key: 'q1',     label: '1/4 cycle (25%)',  col: 'Block Tier 4 (1/4)',    color: '#8b5cf6' },
 ];
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const shortDate = iso => { const [y, m, d] = iso.split('-'); return `${MONTH_ABBR[+m - 1]} ${+d}`; };
@@ -1012,17 +1012,15 @@ const longDate = iso => { const [y, m, d] = iso.split('-'); return `${MONTH_ABBR
 
 function healthGroups(bucket) {
   const sum = tiers => tiers.reduce((s, t) => s + (bucket.tiers[t] || 0), 0);
-  const notFunded = Object.entries(bucket.heatmap).reduce((s, [k, v]) => s + (k.endsWith('|Not Funded') ? v : 0), 0);
-  return {
+  const colSum = col => Object.entries(bucket.heatmap).reduce((s, [k, v]) => s + (k.endsWith('|' + col) ? v : 0), 0);
+  const out = {
     total: bucket.total,
-    funded: bucket.total - notFunded,
-    weekly: sum(TREND_GROUPS[0].tiers),
-    partial: sum(TREND_GROUPS[1].tiers),
-    tier4: sum(TREND_GROUPS[2].tiers),
-    tier56: sum(TREND_GROUPS[3].tiers),
+    funded: bucket.total - colSum('Not Funded'),
     active: sum(['Tier 1', 'Tier 2', 'Tier 3']),      // tiles: Tier 1–3, matches the snapshot summary line
     inactive: sum(['Tier 4', 'Tier 5', 'Tier 6']),    // tiles: Tier 4–6
   };
+  for (const grp of TREND_GROUPS) out[grp.key] = colSum(grp.col);
+  return out;
 }
 
 function renderHealthTrend() {
@@ -1071,11 +1069,12 @@ function renderTrendBars(canvasId, points) {
         backgroundColor: grp.color,
         borderRadius: 3, borderSkipped: 'bottom',
         barPercentage: 0.9, categoryPercentage: 0.7,
-        datalabels: { display: false }
+        datalabels: { anchor: 'end', align: 'end', offset: 0, font: { size: 10, weight: '600' }, color: '#1a1a18', formatter: v => v > 0 ? v.toLocaleString() : '' }
       }))
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 16 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 }, color: '#6b6b66', usePointStyle: true, pointStyle: 'rect' } },
@@ -1083,14 +1082,14 @@ function renderTrendBars(canvasId, points) {
           callbacks: {
             title: items => longDate(points[items[0].dataIndex].date),
             label: item => ` ${item.dataset.label}: ${fN(item.parsed.y)}`,
-            footer: items => { const g = points[items[0].dataIndex].g; return `Total ${fN(g.total)} · funded ${fN(g.funded)} (${Math.round(g.funded / g.total * 100)}%)`; }
+            footer: items => { const g = points[items[0].dataIndex].g; return `Funded ${fN(g.funded)} of ${fN(g.total)} (${Math.round(g.funded / g.total * 100)}%)`; }
           },
           footerFont: { weight: '500' }
         }
       },
       scales: {
         x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#6b6b66' } },
-        y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 }, color: '#9b9b96' }, beginAtZero: true }
+        y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 }, color: '#9b9b96' }, beginAtZero: true, grace: '12%' }
       }
     }
   });
