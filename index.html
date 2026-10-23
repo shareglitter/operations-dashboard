@@ -180,7 +180,7 @@
 
     <div class="chart-card">
       <div class="chart-title">Core Blocks by Tier Group, per Snapshot</div>
-      <div class="chart-sub">Each bar is one refresh of the Blocks table. Tier 1–3 have cleans; Tier 4 has pledges but no cleans; Tier 5–6 have neither.</div>
+      <div class="chart-sub">Each cluster is one refresh of the Blocks table. Tier definitions are listed under the snapshot below.</div>
       <div class="canvas-wrap"><canvas id="chart-core-trend"></canvas></div>
     </div>
   </div>
@@ -997,10 +997,14 @@ function renderHealthTab() {
 // refresh date, same shape as HEALTH_DATA. Snapshots are dated when they were
 // taken — the scheduled run on the 2nd reads as end-of-prior-month — and every
 // run is kept, so manual mid-month runs just add a point.
+// Four clustered bars per snapshot. Colours validated for colour-blind separation
+// (green / blue / orange / purple); the six-tier palette on the snapshot chart
+// below is not, which is why tiers are grouped here.
 const TREND_GROUPS = [
-  { key: 'active',  label: 'Tier 1–3 · cleans', tiers: ['Tier 1', 'Tier 2', 'Tier 3'], color: '#1a7a4a' },
-  { key: 'pledged', label: 'Tier 4 · pledges, no cleans', tiers: ['Tier 4'], color: '#d97706' },
-  { key: 'dormant', label: 'Tier 5–6 · dormant', tiers: ['Tier 5', 'Tier 6'], color: '#2563eb' },
+  { key: 'weekly',  label: 'Tier 1–2 · weekly / near-weekly cleans', tiers: ['Tier 1', 'Tier 2'], color: '#1a7a4a' },
+  { key: 'partial', label: 'Tier 3 · partial cleans', tiers: ['Tier 3'], color: '#2563eb' },
+  { key: 'tier4',   label: 'Tier 4 · no cleans', tiers: ['Tier 4'], color: '#d97706' },
+  { key: 'tier56',  label: 'Tier 5–6 · no cleans', tiers: ['Tier 5', 'Tier 6'], color: '#8b5cf6' },
 ];
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const shortDate = iso => { const [y, m, d] = iso.split('-'); return `${MONTH_ABBR[+m - 1]} ${+d}`; };
@@ -1012,10 +1016,12 @@ function healthGroups(bucket) {
   return {
     total: bucket.total,
     funded: bucket.total - notFunded,
-    active: sum(TREND_GROUPS[0].tiers),
-    pledged: sum(TREND_GROUPS[1].tiers),
-    dormant: sum(TREND_GROUPS[2].tiers),
-    inactive: sum(TREND_GROUPS[1].tiers) + sum(TREND_GROUPS[2].tiers),   // Tier 4–6, matches the snapshot summary line
+    weekly: sum(TREND_GROUPS[0].tiers),
+    partial: sum(TREND_GROUPS[1].tiers),
+    tier4: sum(TREND_GROUPS[2].tiers),
+    tier56: sum(TREND_GROUPS[3].tiers),
+    active: sum(['Tier 1', 'Tier 2', 'Tier 3']),      // tiles: Tier 1–3, matches the snapshot summary line
+    inactive: sum(['Tier 4', 'Tier 5', 'Tier 6']),    // tiles: Tier 4–6
   };
 }
 
@@ -1063,8 +1069,8 @@ function renderTrendBars(canvasId, points) {
         label: grp.label,
         data: points.map(p => p.g[grp.key]),
         backgroundColor: grp.color,
-        borderColor: '#fff', borderWidth: 2, borderSkipped: false, borderRadius: 2,
-        barPercentage: 0.6, categoryPercentage: 0.9,
+        borderRadius: 3, borderSkipped: 'bottom',
+        barPercentage: 0.9, categoryPercentage: 0.7,
         datalabels: { display: false }
       }))
     },
@@ -1083,8 +1089,8 @@ function renderTrendBars(canvasId, points) {
         }
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, color: '#6b6b66' } },
-        y: { stacked: true, grid: { color: '#f0eee8' }, ticks: { font: { size: 10 }, color: '#9b9b96' }, beginAtZero: true }
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#6b6b66' } },
+        y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 }, color: '#9b9b96' }, beginAtZero: true }
       }
     }
   });

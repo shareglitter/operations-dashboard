@@ -211,12 +211,24 @@ arrived in Sep 2026, so the Jul/Aug points include ~2 placeholder blocks.
 
 The tab shows a **Trend** section above the snapshot: four tiles (core total,
 funded, Tier 1–3, Tier 4–6) with deltas vs the previous and first snapshot, and
-a stacked bar per snapshot grouped Tier 1–3 / Tier 4 / Tier 5–6
+four clustered bars per snapshot — Tier 1–2 / Tier 3 / Tier 4 / Tier 5–6
 (`renderHealthTrend`, `TREND_GROUPS` in `index.html`). The snapshot headings
 read "as of <latest history date>" — the same run writes both files, so the
 dates agree. The six-colour tier palette fails the colourblind check (Tier 3
-yellow vs Tier 4 orange), which is why the trend uses three groups instead of
-six series.
+yellow vs Tier 4 orange), which is why the trend uses four validated colours
+instead of six series.
+
+**Open question (Oct 2026): what Tier 4 and Tier 5 actually mean.** The page
+legend says Tier 4 = "0 cleans, has pledges" and Tier 5 = "0 cleans, had
+previous cleans". The snapshots say otherwise: in every snapshot since Aug,
+Tier 5 equals the not-funded blocks with 1+ in `Subscriber Tier` (±1), and
+Tier 4 + Tier 6 equals the not-funded blocks with 0 subscribers — i.e. Tier 5
+looks like "has subscriber records but not funded" and Tier 4/6 split the
+zero-subscriber blocks by whether they were ever cleaned. Live check Oct 23:
+of 371 not-funded core blocks with 1+ `Total Subscribers`, only 28 have an
+Active subscription, so those "subscribers" are mostly lapsed/pledged. Needs
+the `Block Tier (calc)` formula read in Airtable; until then the trend labels
+for Tier 4 and Tier 5–6 say only "no cleans".
 
 ## Next steps / deferred
 
