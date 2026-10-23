@@ -9,6 +9,11 @@ on:
   schedule:
     - cron: '0 10 2 * *'  # 2nd of each month, 10:00 UTC (6am ET)
   workflow_dispatch:  # Allow manual trigger from GitHub UI
+    inputs:
+      health_only:
+        description: 'Block health snapshot only (skip the cleaning-log rebuild; data.js untouched)'
+        type: boolean
+        default: false
 
 jobs:
   refresh:
@@ -30,20 +35,24 @@ jobs:
           # Optional: Slack Incoming Webhook. If set, the president's KPIs are
           # posted to Slack for manual paste into OpsHub → Monthly Metrics.
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: node refresh.js
+        run: node refresh.js ${{ inputs.health_only == true && '--health-only' || '' }}
 
       - name: Commit and push updated data
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data.js health_data.js
+          git add data.js health_data.js health_history.js
 
           # Only commit if the data actually changed
           if git diff --cached --quiet; then
             echo "No data changes — nothing to commit."
             exit 0
           fi
-          git commit -m "Monthly data refresh $(date +%Y-%m)"
+          if [ "${{ inputs.health_only }}" = "true" ]; then
+            git commit -m "Block health snapshot $(date +%Y-%m-%d)"
+          else
+            git commit -m "Monthly data refresh $(date +%Y-%m)"
+          fi
 
           # A bare push is a non-fast-forward if anything landed on main since
           # checkout, or if this is a re-run replaying an older commit SHA.
