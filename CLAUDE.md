@@ -220,12 +220,20 @@ so the dates agree. The six-colour tier palette fails the colourblind check
 (Tier 3 yellow vs Tier 4 orange); the trend uses four validated colours.
 
 The heatmap's **Not Funded column is split in two** (Oct 2026): blocks with
-some pledge money (`Funding Level (via Pledges)` > 0 but under the 25% funded
-threshold) and blocks with none. `buildHealthData` stores this as a separate
-`nfPledged` map (`{subTier: count}`) on each bucket rather than as new
-`CLEAN_TIERS` values, so older history snapshots and the trend's column sums
-are untouched; `renderHeatmap` falls back to the single column when a snapshot
-lacks `nfPledged`.
+some live pledge and blocks with none. "Live pledge" = the sum of `Pledge` on
+the block's Active Subscriptions rows whose `Contribution Status` is Active,
+Missing Payment, Pledged (Block Not Active / Not Yet Paying) or Invoice Sent
+(`LIVE_PLEDGE_STATUSES`), joined on `Block Code`; churned statuses don't count.
+**Don't use `Funding Level (via Pledges)` for this** — it is quantized to
+0 / 0.25 / 0.5 / 1 (confirmed Oct 26, 2026: all 797 not-funded core blocks read
+exactly 0), so it can't see a partial pledge. `buildHealthData` stores the split
+as a separate `nfPledged` map (`{subTier: count}`) on each bucket rather than as
+new `CLEAN_TIERS` values, so older history snapshots and the trend's column
+sums are untouched; `renderHeatmap` falls back to the single column when a
+snapshot lacks `nfPledged`, which is also what happens if the subscriptions
+pull fails (the key is deleted rather than written empty). This adds ~25
+requests to `--health-only`. Oct 26 probe: 327 not-funded core blocks carried
+a live pledge, 218 of them under $25/cycle.
 
 **`Block Tier (calc)` formula (read Oct 2026)** — `L` = `Funding Level (via
 Pledges)`, `subs` = `Total Subscribers` (all subscriber records, not just

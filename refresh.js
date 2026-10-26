@@ -41,9 +41,12 @@ const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 const CORE_FUNDING = ['Resident', 'Commercial / Property Management', 'Community'];
 const FUNDED_MIN = 0.25;
 const FUNDING_LEVEL = 'Funding Level (with Override and Cap)';
-// Pledge-only level (no override / cap) — the `L` in the Block Tier (calc)
-// formula. Used to tell "not funded but some pledge" from "no pledge at all".
-const PLEDGE_LEVEL = 'Funding Level (via Pledges)';
+// Subscription statuses that count as a live pledge on a block: paying, or
+// pledged / invoiced and waiting for the block to reach the 25% threshold.
+// Used for the heatmap's "Not Funded · some pledge" split. The Blocks-level
+// `Funding Level (via Pledges)` can't do this job: it is quantized to
+// 0 / 0.25 / 0.5 / 1, so every block under 25% reads as exactly 0.
+const LIVE_PLEDGE_STATUSES = ['Active', 'Missing Payment', 'Pledged, Block Not Active', 'Pledged, Not Yet Paying', 'Invoice Sent'];
 
 // Block growth splits blocks three ways. `Funding Type = Project` is a true
 // project/grant block. A neighbor-funded block that also carries a `Projects`
@@ -432,8 +435,28 @@ async function postToSlack(text) {
 async function buildHealthData(now) {
   console.log('\nFetching block tier data...');
   const records = await fetchAll(BLOCKS_TABLE,
-    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type', PLEDGE_LEVEL, EXCLUDE_FLAG]);
+    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type', 'Block Code', EXCLUDE_FLAG]);
   console.log(`  ${records.length} block records`);
+
+  // Live pledge dollars per block (per billing cycle), summed over the
+  // subscriptions in LIVE_PLEDGE_STATUSES and joined on Block Code. ~25
+  // requests. Guarded: if it fails, `nfPledged` is dropped and the page shows
+  // the single Not Funded column rather than a wrong split.
+  let pledgeByCode = null;
+  try {
+    const subs = await fetchAll(encodeURIComponent('Active Subscriptions'),
+      ['Contribution Status', 'Block Code', 'Pledge'],
+      'OR(' + LIVE_PLEDGE_STATUSES.map(s => `{Contribution Status}='${s}'`).join(',') + ')');
+    pledgeByCode = {};
+    for (const r of subs) {
+      const code = one(r.fields['Block Code']);
+      if (!code) continue;
+      pledgeByCode[code] = (pledgeByCode[code] || 0) + (r.fields['Pledge'] || 0);
+    }
+    console.log(`  ${subs.length} live-pledge subscriptions on ${Object.keys(pledgeByCode).length} blocks`);
+  } catch (e) {
+    console.log(`  ⚠ Active Subscriptions unavailable — Not Funded pledge split skipped: ${e.message}`);
+  }
 
   const subTiersSet = new Set();
   const cleanTiersSet = new Set();
@@ -446,6 +469,7 @@ async function buildHealthData(now) {
   // keep working unchanged; the page falls back to one column when it's absent.
   const core = { tiers: {}, heatmap: {}, nfPledged: {}, total: 0 };
   const proj = { tiers: {}, heatmap: {}, nfPledged: {}, total: 0 };
+  const nfDist = { core: {}, proj: {} };   // $/cycle buckets, for the log
 
   for (const r of records) {
     if (!keepBlock(r)) continue;
@@ -469,7 +493,13 @@ async function buildHealthData(now) {
     bucket.tiers[bt] = (bucket.tiers[bt] || 0) + 1;
     const key = `${st}|${ct}`;
     bucket.heatmap[key] = (bucket.heatmap[key] || 0) + 1;
-    if (ct === 'Not Funded' && (f[PLEDGE_LEVEL] || 0) > 0) bucket.nfPledged[st] = (bucket.nfPledged[st] || 0) + 1;
+    const pledge = pledgeByCode ? (pledgeByCode[f['Block Code']] || 0) : 0;
+    if (ct === 'Not Funded' && pledge > 0) {
+      bucket.nfPledged[st] = (bucket.nfPledged[st] || 0) + 1;
+      const d = nfDist[isCore ? 'core' : 'proj'];
+      const k = pledge < 25 ? '<$25' : pledge < 50 ? '$25–49' : '$50+';
+      d[k] = (d[k] || 0) + 1;
+    }
     bucket.total++;
   }
 
@@ -479,6 +509,15 @@ async function buildHealthData(now) {
 
   console.log(`  Core: ${core.total} blocks, Project: ${proj.total} blocks`);
   console.log(`  Tiers: ${tierLabels.join(', ')}`);
+  if (pledgeByCode) {
+    for (const [name, b] of [['Core', core], ['Project', proj]]) {
+      const n = Object.values(b.nfPledged).reduce((a, v) => a + v, 0);
+      console.log(`  ${name} Not Funded with some live pledge: ${n}  ${JSON.stringify(nfDist[name === 'Core' ? 'core' : 'proj'])}`);
+    }
+  } else {
+    delete core.nfPledged;
+    delete proj.nfPledged;
+  }
 
   const healthOutput = `// Glitter Operations Dashboard — Block Health Snapshot
 // Auto-generated ${now.toISOString().slice(0, 10)}
