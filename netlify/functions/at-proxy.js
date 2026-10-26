@@ -28,12 +28,12 @@ const ALLOW = {
     // Cleaning Log — index.html current-month cleans
     tblaDXbhz6DEcytgh: ['Date and Time', 'Project', 'Multiplier', 'Payout', 'Trash', 'Debris'],
     // Blocks — index.html live block state; pilots.html ambassador + compost blocks
-    tblssvtXzgL200hSi: ['Block Code', 'Funding Type', 'Projects', 'Funding Level (with Override and Cap)', 'Total Subscribers',
+    tblssvtXzgL200hSi: ['Block Code', 'Funding Type', 'Projects', 'Funding Level (with Override and Cap)', 'Funding Level (via Pledges)', 'Total Subscribers',
       'First Clean Date', 'Last Clean Date [Rollup]', 'Exclude from Dashboard',
       'Ambassadors', 'Compost Pilot', 'Compost Pickup Day', 'Count Compost Add-On Active Subscriptions'],
     // index.html Metrics/Financials; pilots.html compost add-ons
     'Active Subscriptions': ['Contribution Status', 'Share', 'Funding Type (from Block)', 'MRR', 'MRR (Share)', 'MRR (Donation)',
-      'Compost Add-On', 'Last Modified - Compost Add-On', 'Compost Opt-In (from Subscriber)', 'Block Code', 'Member Since'],
+      'Compost Add-On', 'Last Modified - Compost Add-On', 'Compost Opt-In (from Subscriber)', 'Block Code', 'Member Since', 'Pledge'],
     // pilots.html service interest — opt-in flags synced from ActiveCampaign (Oct 2026)
     Subscribers: ['Snow opt-in', 'Leaves opt-in', 'TrashCan opt-in', 'Weeds opt-in', 'Compost Opt-In', 'Member Since'],
     // pilots.html ambassadors
