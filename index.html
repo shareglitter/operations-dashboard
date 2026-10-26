@@ -216,7 +216,7 @@
 
     <div class="chart-card">
       <div class="chart-title">Subscriber Group vs Cleaning Level — Core Blocks</div>
-      <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count</div>
+      <div class="chart-sub">Rows = subscriber count tier · Columns = cleaning frequency tier · Values = block count · Not Funded split by whether any pledge money is on the block (under 25%) or none at all</div>
       <div id="heatmap-core"></div>
       <div style="font-size:10px;color:#9b9b96;margin-top:8px;font-style:italic">Counts are straight block counts (not weighted by multiplier). Excludes blocks with formula errors or incomplete setup.</div>
     </div>
@@ -1163,22 +1163,33 @@ function renderHeatmap(containerId, data) {
   const container = document.getElementById(containerId);
   const maxVal = Math.max(...Object.values(data.heatmap), 1);
 
-  // Short labels for columns
-  const colLabels = ['Weekly (100%)', '3/4 Cycle (75%)', '2/4 Cycle (50%)', '1/4 Cycle (25%)', 'Not Funded (0%)'];
+  // Columns: the four funded cleaning tiers, then Not Funded. When the snapshot
+  // carries `nfPledged` (refresh.js, Oct 2026) the Not Funded column is split
+  // into blocks with some pledge money (0 < pledge level < 25%) and blocks with
+  // none; older snapshots without it show the single column.
+  const nf = ct => st => data.heatmap[`${st}|${ct}`] || 0;
+  const cols = CLEAN_TIERS.filter(ct => ct !== 'Not Funded').map((ct, i) =>
+    ({ label: ['Weekly (100%)', '3/4 Cycle (75%)', '2/4 Cycle (50%)', '1/4 Cycle (25%)'][i] || ct, val: nf(ct) }));
+  if (data.nfPledged) {
+    cols.push({ label: 'Not Funded · some pledge', val: st => data.nfPledged[st] || 0 });
+    cols.push({ label: 'Not Funded · no pledge', val: st => nf('Not Funded')(st) - (data.nfPledged[st] || 0) });
+  } else {
+    cols.push({ label: 'Not Funded (0%)', val: nf('Not Funded') });
+  }
   const rowLabels = ['Subscriber Group A: 10+ subs', 'Subscriber Group B: 5-9 subs', 'Subscriber Group C: 1-4 subs', 'Subscriber Group F: 0 subs'];
 
   let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
   // Header
   html += '<tr><th style="padding:8px;text-align:left;color:#6b6b66;font-size:10px;font-weight:600"></th>';
-  colLabels.forEach(c => { html += `<th style="padding:8px;text-align:center;color:#6b6b66;font-size:10px;font-weight:600;white-space:nowrap">${c}</th>`; });
+  cols.forEach(c => { html += `<th style="padding:8px;text-align:center;color:#6b6b66;font-size:10px;font-weight:600;white-space:nowrap">${c.label}</th>`; });
   html += '<th style="padding:8px;text-align:center;color:#6b6b66;font-size:10px;font-weight:600">Total</th></tr>';
 
   // Rows
   SUB_TIERS.forEach((st, si) => {
     html += `<tr><td style="padding:8px 10px;font-weight:600;font-size:11px;white-space:nowrap;color:#1a1a18">${rowLabels[si]}</td>`;
     let rowTotal = 0;
-    CLEAN_TIERS.forEach(ct => {
-      const v = data.heatmap[`${st}|${ct}`] || 0;
+    cols.forEach(c => {
+      const v = c.val(st);
       rowTotal += v;
       const intensity = v / maxVal;
       const bg = v === 0 ? '#f7f6f3' :
@@ -1193,8 +1204,8 @@ function renderHeatmap(containerId, data) {
   // Column totals
   html += '<tr><td style="padding:8px 10px;font-weight:600;font-size:11px;color:#6b6b66">Total</td>';
   let grand = 0;
-  CLEAN_TIERS.forEach(ct => {
-    const col = SUB_TIERS.reduce((s, st) => s + (data.heatmap[`${st}|${ct}`] || 0), 0);
+  cols.forEach(c => {
+    const col = SUB_TIERS.reduce((s, st) => s + c.val(st), 0);
     grand += col;
     html += `<td style="padding:8px;text-align:center;font-weight:600;color:#6b6b66;background:#f0efe8;border:2px solid #fff;border-radius:4px">${col}</td>`;
   });
@@ -1204,7 +1215,9 @@ function renderHeatmap(containerId, data) {
   // Funded vs Not Funded summary
   const notFunded = SUB_TIERS.reduce((s, st) => s + (data.heatmap[`${st}|Not Funded`] || 0), 0);
   const funded = grand - notFunded;
-  html += `<div style="margin-top:12px;font-size:13px;color:#1a1a18"><strong>Funded blocks:</strong> ${funded} &nbsp;·&nbsp; <strong>Not Funded:</strong> ${notFunded} &nbsp;·&nbsp; <span style="color:#6b6b66">${Math.round(funded/grand*100)}% funded</span></div>`;
+  const pledged = data.nfPledged ? SUB_TIERS.reduce((s, st) => s + (data.nfPledged[st] || 0), 0) : null;
+  const nfText = pledged === null ? `${notFunded}` : `${notFunded} <span style="color:#6b6b66">(${pledged} with some pledge · ${notFunded - pledged} with none)</span>`;
+  html += `<div style="margin-top:12px;font-size:13px;color:#1a1a18"><strong>Funded blocks:</strong> ${funded} &nbsp;·&nbsp; <strong>Not Funded:</strong> ${nfText} &nbsp;·&nbsp; <span style="color:#6b6b66">${Math.round(funded/grand*100)}% funded</span></div>`;
 
   container.innerHTML = html;
 }

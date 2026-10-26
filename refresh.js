@@ -41,6 +41,9 @@ const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 const CORE_FUNDING = ['Resident', 'Commercial / Property Management', 'Community'];
 const FUNDED_MIN = 0.25;
 const FUNDING_LEVEL = 'Funding Level (with Override and Cap)';
+// Pledge-only level (no override / cap) — the `L` in the Block Tier (calc)
+// formula. Used to tell "not funded but some pledge" from "no pledge at all".
+const PLEDGE_LEVEL = 'Funding Level (via Pledges)';
 
 // Block growth splits blocks three ways. `Funding Type = Project` is a true
 // project/grant block. A neighbor-funded block that also carries a `Projects`
@@ -429,15 +432,20 @@ async function postToSlack(text) {
 async function buildHealthData(now) {
   console.log('\nFetching block tier data...');
   const records = await fetchAll(BLOCKS_TABLE,
-    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type', EXCLUDE_FLAG]);
+    ['Subscriber Tier', 'Cleaning Level Tier', 'Block Tier (calc)', 'Funding Type', PLEDGE_LEVEL, EXCLUDE_FLAG]);
   console.log(`  ${records.length} block records`);
 
   const subTiersSet = new Set();
   const cleanTiersSet = new Set();
   const blockTiersSet = new Set();
 
-  const core = { tiers: {}, heatmap: {}, total: 0 };
-  const proj = { tiers: {}, heatmap: {}, total: 0 };
+  // `nfPledged` splits the heatmap's Not Funded column: per subscriber tier,
+  // how many of those blocks still carry some pledge money (0 < pledge level
+  // < 25%) as opposed to none at all. Kept beside `heatmap` rather than as new
+  // CLEAN_TIERS values so older history snapshots and the trend's column sums
+  // keep working unchanged; the page falls back to one column when it's absent.
+  const core = { tiers: {}, heatmap: {}, nfPledged: {}, total: 0 };
+  const proj = { tiers: {}, heatmap: {}, nfPledged: {}, total: 0 };
 
   for (const r of records) {
     if (!keepBlock(r)) continue;
@@ -461,6 +469,7 @@ async function buildHealthData(now) {
     bucket.tiers[bt] = (bucket.tiers[bt] || 0) + 1;
     const key = `${st}|${ct}`;
     bucket.heatmap[key] = (bucket.heatmap[key] || 0) + 1;
+    if (ct === 'Not Funded' && (f[PLEDGE_LEVEL] || 0) > 0) bucket.nfPledged[st] = (bucket.nfPledged[st] || 0) + 1;
     bucket.total++;
   }
 

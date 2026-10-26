@@ -219,6 +219,14 @@ headings read "as of <latest history date>" — the same run writes both files,
 so the dates agree. The six-colour tier palette fails the colourblind check
 (Tier 3 yellow vs Tier 4 orange); the trend uses four validated colours.
 
+The heatmap's **Not Funded column is split in two** (Oct 2026): blocks with
+some pledge money (`Funding Level (via Pledges)` > 0 but under the 25% funded
+threshold) and blocks with none. `buildHealthData` stores this as a separate
+`nfPledged` map (`{subTier: count}`) on each bucket rather than as new
+`CLEAN_TIERS` values, so older history snapshots and the trend's column sums
+are untouched; `renderHeatmap` falls back to the single column when a snapshot
+lacks `nfPledged`.
+
 **`Block Tier (calc)` formula (read Oct 2026)** — `L` = `Funding Level (via
 Pledges)`, `subs` = `Total Subscribers` (all subscriber records, not just
 Active), "cleaned" = has linked Cleaning Log rows:
