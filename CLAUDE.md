@@ -235,6 +235,12 @@ pull fails (the key is deleted rather than written empty). This adds ~25
 requests to `--health-only`. Oct 26 probe: 327 not-funded core blocks carried
 a live pledge, 218 of them under $25/cycle.
 
+Airtable returns a **formula error as an object** (`{"error":"#ERROR!"}`), not
+the string `#ERROR!`. `buildHealthData` skips any block whose three tier fields
+aren't non-empty strings and lists them in the log (Oct 26, 2026: one such block
+put a `[object Object]` column on the heatmap and a seventh tier label in the
+bars until the guard was fixed). Fix the block in Airtable and rerun.
+
 **`Block Tier (calc)` formula (read Oct 2026)** — `L` = `Funding Level (via
 Pledges)`, `subs` = `Total Subscribers` (all subscriber records, not just
 Active), "cleaned" = has linked Cleaning Log rows:

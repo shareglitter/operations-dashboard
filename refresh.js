@@ -470,16 +470,25 @@ async function buildHealthData(now) {
   const core = { tiers: {}, heatmap: {}, nfPledged: {}, total: 0 };
   const proj = { tiers: {}, heatmap: {}, nfPledged: {}, total: 0 };
   const nfDist = { core: {}, proj: {} };   // $/cycle buckets, for the log
+  const skipped = [];   // blocks whose tier formulas error or are blank
 
   for (const r of records) {
     if (!keepBlock(r)) continue;
     const f = r.fields;
-    const st = f['Subscriber Tier'] || '';
-    const ct = f['Cleaning Level Tier'] || '';
-    const bt = f['Block Tier (calc)'] || '';
+    const st = f['Subscriber Tier'];
+    const ct = f['Cleaning Level Tier'];
+    const bt = f['Block Tier (calc)'];
     const fund = f['Funding Type'] || '';
 
-    if (!bt || bt === '#ERROR!') continue;
+    // Airtable returns a formula error as an object ({error: "#ERROR!"}), not
+    // a string. Anything that isn't a non-empty string in the three tier
+    // fields would otherwise leak into the tier lists as "[object Object]".
+    const bad = [['Subscriber Tier', st], ['Cleaning Level Tier', ct], ['Block Tier (calc)', bt]]
+      .filter(([, v]) => typeof v !== 'string' || !v || v === '#ERROR!');
+    if (bad.length) {
+      skipped.push(`${f['Block Code'] || r.id}: ${bad.map(([n, v]) => `${n}=${JSON.stringify(v ?? null)}`).join(', ')}`);
+      continue;
+    }
 
     subTiersSet.add(st);
     cleanTiersSet.add(ct);
@@ -509,6 +518,10 @@ async function buildHealthData(now) {
 
   console.log(`  Core: ${core.total} blocks, Project: ${proj.total} blocks`);
   console.log(`  Tiers: ${tierLabels.join(', ')}`);
+  if (skipped.length) {
+    console.log(`  ⚠ ${skipped.length} block(s) skipped — tier formula error or blank (fix in Airtable):`);
+    skipped.forEach(l => console.log(`     ${l}`));
+  }
   if (pledgeByCode) {
     for (const [name, b] of [['Core', core], ['Project', proj]]) {
       const n = Object.values(b.nfPledged).reduce((a, v) => a + v, 0);
