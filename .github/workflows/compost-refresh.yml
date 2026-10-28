@@ -1,0 +1,54 @@
+# Glitter Pilots Dashboard — Compost site usage refresh
+# Daily: pull the vendor's pickup log (via the Glitter-owned mirror sheet's
+# publish-to-web CSV link), rebuild compost_data.js, post new/cleared site flags
+# to Slack, and commit only if the data changed. Netlify auto-deploys the commit.
+# One HTTP request per run; no Airtable calls.
+
+name: Compost Site Refresh
+
+on:
+  schedule:
+    - cron: '0 11 * * *'   # daily 11:00 UTC (7am ET) — the vendor logs pickups the day they happen
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Run compost refresh
+        env:
+          # Publish-to-web CSV link of the mirror sheet (GitHub secret). The
+          # vendor's own sheet is private; see CLAUDE.md → "Compost site usage".
+          COMPOST_SHEET_CSV_URL: ${{ secrets.COMPOST_SHEET_CSV_URL }}
+          # Optional: same Slack Incoming Webhook the monthly refresh uses.
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: node compost_refresh.js
+
+      - name: Commit and push updated data
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add compost_data.js
+          if git diff --cached --quiet; then
+            echo "No data changes — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Compost site data $(date +%Y-%m-%d)"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              echo "Pushed compost refresh."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed — retrying in 5s."
+            sleep 5
+          done
+          echo "Could not push after 3 attempts."
+          exit 1

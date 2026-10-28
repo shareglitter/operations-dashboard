@@ -66,6 +66,33 @@ git add data.js && git commit -m "manual refresh" && git push
 
 **If no one refreshes:** The dashboard still works — it shows historical data through the last refresh, and always fetches the current month live. Only the gap between the last refresh and last month would be missing, and the next refresh (manual or scheduled) fills it in.
 
+## Compost site usage (daily)
+
+The Compost tab on the Pilots Dashboard shows bin fill levels per site from the
+vendor's (Bennett Compost) Google Sheet, with flags when a site's usage drops.
+The sheet is private and vendor-owned, so it is read through a Glitter-owned
+mirror. One-time setup:
+
+1. **Make the mirror sheet.** In Google Sheets, create a new blank sheet under
+   a Glitter account. In cell A1 enter
+   `=IMPORTRANGE("https://docs.google.com/spreadsheets/d/1M-emuxmaB_JOVT_U-NaaFOdD5RWS03FeS05zzsT35V0", "Sheet1!A1:Z200")`
+   and click **Allow access** when prompted. The vendor's tab now appears here
+   and refreshes itself (Google re-pulls IMPORTRANGE about every 30 minutes).
+2. **Publish the mirror as CSV.** File → Share → **Publish to web** → pick the
+   mirror's sheet, choose **Comma-separated values (.csv)**, tick
+   "Automatically republish when changes are made", click Publish, copy the link.
+3. **Add the link as a GitHub secret** named `COMPOST_SHEET_CSV_URL`
+   (repo → Settings → Secrets → Actions). The vendor is not involved and keeps
+   their sheet private; only this obscure CSV link is public.
+4. **Run it once** from Actions → *Compost Site Refresh* → Run workflow. It
+   writes `compost_data.js`, commits, and Netlify deploys. After that it runs
+   every morning at 7am ET and posts new or cleared flags to Slack if
+   `SLACK_WEBHOOK_URL` is set.
+
+If the vendor adds a site or renames a column, the next run posts an urgent
+"Sheet layout" flag naming the header; add it to `SITES` in
+`compost_refresh.js`. Flag thresholds live at the top of the same file.
+
 ## Embedding in Softr
 
 Add a "Custom Code" or "Embed" block to your Softr page with the Netlify URL as an iframe:
