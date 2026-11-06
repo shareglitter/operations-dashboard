@@ -1,11 +1,11 @@
 // Glitter Pilots Dashboard — Compost site usage (vendor pickup log)
-// Auto-generated 2026-11-04 by compost_refresh.js — do not hand-edit.
+// Auto-generated 2026-11-06 by compost_refresh.js — do not hand-edit.
 // Source: Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)
 // 143 pickups, 2026-04-01 → 2026-11-04, 5 sites, 0 flags
 
 const COMPOST_DATA = {
  "asOf": "2026-11-04",
- "generated": "2026-11-04",
+ "generated": "2026-11-06",
  "source": "Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)",
  "binGallons": 32,
  "lbsPerGallon": 4,
@@ -20,9 +20,9 @@ const COMPOST_DATA = {
  },
  "network": {
   "ratio": 1.2,
-  "weekGallons": 88,
-  "weekLbs": 352,
-  "weekPickups": 5
+  "weekGallons": 48,
+  "weekLbs": 192,
+  "weekPickups": 3
  },
  "sites": [
   {
