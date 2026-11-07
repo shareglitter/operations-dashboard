@@ -1,11 +1,11 @@
 // Glitter Pilots Dashboard — Compost site usage (vendor pickup log)
-// Auto-generated 2026-11-06 by compost_refresh.js — do not hand-edit.
+// Auto-generated 2026-11-07 by compost_refresh.js — do not hand-edit.
 // Source: Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)
-// 143 pickups, 2026-04-01 → 2026-11-04, 5 sites, 0 flags
+// 145 pickups, 2026-04-01 → 2026-11-06, 5 sites, 0 flags
 
 const COMPOST_DATA = {
- "asOf": "2026-11-04",
- "generated": "2026-11-06",
+ "asOf": "2026-11-06",
+ "generated": "2026-11-07",
  "source": "Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)",
  "binGallons": 32,
  "lbsPerGallon": 4,
@@ -20,9 +20,9 @@ const COMPOST_DATA = {
  },
  "network": {
   "ratio": 1.2,
-  "weekGallons": 48,
-  "weekLbs": 192,
-  "weekPickups": 3
+  "weekGallons": 72,
+  "weekLbs": 288,
+  "weekPickups": 5
  },
  "sites": [
   {
@@ -32,21 +32,21 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Fri",
    "first": "2026-04-03",
-   "last": "2026-10-30",
+   "last": "2026-11-06",
    "lastStatus": "pickup",
-   "lastGallons": 24,
-   "lastVisit": "2026-10-30",
-   "pickups": 30,
+   "lastGallons": 8,
+   "lastVisit": "2026-11-06",
+   "pickups": 31,
    "skips": 1,
    "empties": 2,
    "fulls": 6,
-   "gallons": 472,
-   "lbs": 1888,
+   "gallons": 480,
+   "lbs": 1920,
    "recentN": 3,
    "recentAvg": 13.3,
    "baselineN": 8,
-   "baselineAvg": 12,
-   "ratio": 1.11,
+   "baselineAvg": 11,
+   "ratio": 1.21,
    "recentFulls": 0
   },
   {
@@ -56,21 +56,21 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Fri",
    "first": "2026-04-03",
-   "last": "2026-10-30",
+   "last": "2026-11-06",
    "lastStatus": "pickup",
    "lastGallons": 16,
-   "lastVisit": "2026-10-30",
-   "pickups": 31,
+   "lastVisit": "2026-11-06",
+   "pickups": 32,
    "skips": 0,
    "empties": 0,
    "fulls": 5,
-   "gallons": 536,
-   "lbs": 2144,
+   "gallons": 552,
+   "lbs": 2208,
    "recentN": 3,
-   "recentAvg": 18.7,
+   "recentAvg": 16,
    "baselineN": 8,
-   "baselineAvg": 15,
-   "ratio": 1.24,
+   "baselineAvg": 16,
+   "ratio": 1,
    "recentFulls": 0
   },
   {
@@ -1289,7 +1289,23 @@ const COMPOST_DATA = {
    "status": "pickup",
    "gallons": 32,
    "lbs": 128,
-   "desc": "q full"
+   "desc": "1 full"
+  },
+  {
+   "site": "christian",
+   "date": "2026-11-06",
+   "status": "pickup",
+   "gallons": 8,
+   "lbs": 32,
+   "desc": "1/4 full"
+  },
+  {
+   "site": "kimball",
+   "date": "2026-11-06",
+   "status": "pickup",
+   "gallons": 16,
+   "lbs": 64,
+   "desc": "1/2 full"
   }
  ],
  "flags": [],
