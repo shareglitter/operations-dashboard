@@ -1,11 +1,11 @@
 // Glitter Pilots Dashboard — Compost site usage (vendor pickup log)
-// Auto-generated 2026-11-13 by compost_refresh.js — do not hand-edit.
+// Auto-generated 2026-11-16 by compost_refresh.js — do not hand-edit.
 // Source: Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)
-// 148 pickups, 2026-04-01 → 2026-11-11, 5 sites, 0 flags
+// 151 pickups, 2026-04-01 → 2026-11-16, 5 sites, 0 flags
 
 const COMPOST_DATA = {
- "asOf": "2026-11-11",
- "generated": "2026-11-13",
+ "asOf": "2026-11-16",
+ "generated": "2026-11-16",
  "source": "Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)",
  "binGallons": 32,
  "lbsPerGallon": 4,
@@ -20,9 +20,9 @@ const COMPOST_DATA = {
  },
  "network": {
   "ratio": 1.2,
-  "weekGallons": 48,
-  "weekLbs": 192,
-  "weekPickups": 3
+  "weekGallons": 72,
+  "weekLbs": 288,
+  "weekPickups": 5
  },
  "sites": [
   {
@@ -32,21 +32,21 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Fri",
    "first": "2026-04-03",
-   "last": "2026-11-06",
+   "last": "2026-11-13",
    "lastStatus": "pickup",
    "lastGallons": 8,
-   "lastVisit": "2026-11-06",
-   "pickups": 31,
+   "lastVisit": "2026-11-13",
+   "pickups": 32,
    "skips": 1,
    "empties": 2,
    "fulls": 6,
-   "gallons": 480,
-   "lbs": 1920,
+   "gallons": 488,
+   "lbs": 1952,
    "recentN": 3,
    "recentAvg": 13.3,
    "baselineN": 8,
-   "baselineAvg": 11,
-   "ratio": 1.21,
+   "baselineAvg": 8,
+   "ratio": 1.67,
    "recentFulls": 0
   },
   {
@@ -56,16 +56,16 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Fri",
    "first": "2026-04-03",
-   "last": "2026-11-06",
+   "last": "2026-11-13",
    "lastStatus": "pickup",
    "lastGallons": 16,
-   "lastVisit": "2026-11-06",
-   "pickups": 32,
+   "lastVisit": "2026-11-13",
+   "pickups": 33,
    "skips": 0,
    "empties": 0,
    "fulls": 5,
-   "gallons": 552,
-   "lbs": 2208,
+   "gallons": 568,
+   "lbs": 2272,
    "recentN": 3,
    "recentAvg": 16,
    "baselineN": 8,
@@ -104,16 +104,16 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Mon",
    "first": "2026-04-20",
-   "last": "2026-11-09",
+   "last": "2026-11-16",
    "lastStatus": "pickup",
    "lastGallons": 8,
-   "lastVisit": "2026-11-09",
-   "pickups": 30,
+   "lastVisit": "2026-11-16",
+   "pickups": 31,
    "skips": 0,
    "empties": 0,
    "fulls": 1,
-   "gallons": 280,
-   "lbs": 1120,
+   "gallons": 288,
+   "lbs": 1152,
    "recentN": 3,
    "recentAvg": 8,
    "baselineN": 8,
@@ -1326,6 +1326,30 @@ const COMPOST_DATA = {
   {
    "site": "uber",
    "date": "2026-11-11",
+   "status": "pickup",
+   "gallons": 8,
+   "lbs": 32,
+   "desc": "1/4 full"
+  },
+  {
+   "site": "christian",
+   "date": "2026-11-13",
+   "status": "pickup",
+   "gallons": 8,
+   "lbs": 32,
+   "desc": "1/4 full"
+  },
+  {
+   "site": "kimball",
+   "date": "2026-11-13",
+   "status": "pickup",
+   "gallons": 16,
+   "lbs": 64,
+   "desc": "1/2 full"
+  },
+  {
+   "site": "green",
+   "date": "2026-11-16",
    "status": "pickup",
    "gallons": 8,
    "lbs": 32,
