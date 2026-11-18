@@ -5,7 +5,8 @@
  * Pulls cleaning log and block data from Airtable, computes monthly summaries,
  * and writes updated data.js. Run on the 1st of each month (or anytime).
  * 
- * Usage:  node refresh.js                 full refresh (data.js, health_data.js, health_history.js)
+ * Usage:  node refresh.js                 full refresh (data.js, health_data.js, health_history.js,
+ *                                         pledge_data.js, pledge_history.js)
  *         node refresh.js --health-only   Blocks table only (~10 requests): rewrite
  *                                         health_data.js and append today's snapshot
  *                                         to health_history.js, leave data.js alone
@@ -16,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const TOKEN = process.env.AIRTABLE_TOKEN;
-if (!TOKEN) {
+if (!TOKEN && require.main === module) {
   console.error('❌ Set AIRTABLE_TOKEN environment variable first.');
   console.error('   macOS/Linux: export AIRTABLE_TOKEN="pat..."');
   console.error('   Windows:     set AIRTABLE_TOKEN=pat...');
@@ -327,7 +328,139 @@ const HIST_BLOCKS = ${JSON.stringify(blocksFinal)};
   // President's KPIs — printed for manual entry into OpsHub, never written
   await buildMonthlyMetrics(blocksFinal);
 
-  console.log('\nDeploy: git add data.js health_data.js health_history.js && git commit -m "monthly refresh" && git push');
+  console.log('\nDeploy: git add data.js health_data.js health_history.js pledge_data.js pledge_history.js && git commit -m "monthly refresh" && git push');
+}
+
+// ── Pledge economics → pledge_data.js + pledge_history.js ────────────────────
+//
+// Feeds the "Average pledge" chart at the bottom of Cleaning & Revenue: is
+// marketing bringing in bigger pledges (new subscribers), and is the existing
+// book's average moving?
+//
+// `Pledge` is dollars per 4-week billing cycle. The chart series stay in
+// pledge dollars (that is the number a neighbor picks at signup); only
+// PLEDGE_BY_TYPE is converted to MRR (× 13/12) to sit beside the financials.
+//
+// Resident only. Community / Project / Commercial arrive in block-onboarding
+// batches (Community: zero in 19 of 25 months, then 54 at once) and a single
+// $200 commercial pledge would swamp a month of $20 residents.
+const MRR_FACTOR = 13 / 12;
+const PLEDGE_TYPE = 'Resident';
+// Subscriptions carry no pledge-start date. `Member Since` is an Airtable
+// createdTime field — identical to the record's createdTime on every row — so
+// it dates the Jun–Jul 2024 migration, not the pledge. From Aug 2024 on,
+// record creation tracks real signups.
+const COHORT_START = '2024-08';
+// Signed up but not paying: the block is under the 25% threshold, or the
+// first charge / invoice hasn't landed. Same "pending" set as pilots.html.
+const PENDING_STATUSES = ['Pledged, Block Not Active', 'Pledged, Not Yet Paying', 'Invoice Sent'];
+const HIGH_PLEDGE = 25;   // "share of signups at $25+" — one step above the $20 mode
+
+function median(nums) {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+const round2 = n => Math.round(n * 100) / 100;
+const sum = nums => nums.reduce((a, b) => a + b, 0);
+const stats = vals => ({ n: vals.length, mean: vals.length ? round2(sum(vals) / vals.length) : 0, median: round2(median(vals)) });
+
+// `subs` = every Active Subscriptions row, all statuses. Churned rows keep
+// their Pledge, so a past month's signups are not just the survivors. Rows with
+// no pledge (311 in Nov 2026, mostly churned) are left out.
+function buildPledgeData(subs, now = new Date()) {
+  const rows = subs.map(r => ({
+    type: one(r.fields['Funding Type (from Block)']) || 'Unassigned',
+    status: r.fields['Contribution Status'] || '',
+    pledge: r.fields['Pledge'] || 0,
+    month: (r.createdTime || '').slice(0, 7),
+  })).filter(r => r.pledge > 0);
+
+  const active = rows.filter(r => r.status === 'Active');
+  const byType = [...new Set(active.map(r => r.type))].map(type => {
+    const vals = active.filter(r => r.type === type).map(r => r.pledge * MRR_FACTOR);
+    return { type, n: vals.length, median: round2(median(vals)), mean: round2(sum(vals) / vals.length), total: Math.round(sum(vals)) };
+  }).sort((a, b) => b.n - a.n);
+
+  // NEW subscribers: pledges of the subscriptions created in each month,
+  // whatever became of them. Counts and sums (not means) are stored so the
+  // page can pool months into a rolling average, and the pledge distribution
+  // so it can pool a median. `pend_*` is the subset that
+  // is pledged-but-not-paying *as of this run* — status has no history, so for
+  // an old month it means "still waiting", not "was waiting then". The current
+  // (partial) month is dropped the same way the cleaning series drops it.
+  const nowMonth = now.toISOString().slice(0, 7);
+  const res = rows.filter(r => r.type === PLEDGE_TYPE);
+  const signups = res.filter(r => r.month >= COHORT_START && r.month < nowMonth);
+  // value → count, so the page can take a median over any pooled window.
+  const dist = list => list.reduce((o, r) => (o[r.pledge] = (o[r.pledge] || 0) + 1, o), {});
+  const newSeries = [...new Set(signups.map(r => r.month))].sort().map(month => {
+    const m = signups.filter(r => r.month === month);
+    const pend = m.filter(r => PENDING_STATUSES.includes(r.status));
+    return {
+      month, n: m.length, sum: round2(sum(m.map(r => r.pledge))),
+      n_high: m.filter(r => r.pledge >= HIGH_PLEDGE).length,
+      pend_n: pend.length, pend_sum: round2(sum(pend.map(r => r.pledge))),
+      dist: dist(m), pend_dist: dist(pend),
+    };
+  });
+
+  const out = `// Glitter Operations Dashboard — Pledge Economics
+// Auto-generated ${now.toISOString().slice(0, 10)} by refresh.js — do not hand-edit.
+// PLEDGE_NEW: ${PLEDGE_TYPE} subscriptions by signup month from ${COHORT_START}, pledge $ per 4-week cycle.
+//   n / sum = all signups with a pledge · n_high = pledging $${HIGH_PLEDGE}+ · pend_* = pledged, not paying as of this run
+//   dist / pend_dist = {pledge $: signups}, for medians
+// PLEDGE_BY_TYPE: active subscriptions only, as MRR (pledge × 13/12).
+
+const PLEDGE_NEW = ${JSON.stringify(newSeries)};
+
+const PLEDGE_BY_TYPE = ${JSON.stringify(byType)};
+`;
+  fs.writeFileSync(path.join(__dirname, 'pledge_data.js'), out);
+  console.log(`✅ pledge_data.js written — ${newSeries.length} signup months, ${active.length} active pledges`);
+  byType.forEach(t => console.log(`     ${t.type.padEnd(32)} n=${String(t.n).padEnd(5)} median $${t.median}/mo   mean $${t.mean}/mo`));
+
+  // EXISTING subscribers: Airtable keeps only the current pledge (an upgrade
+  // overwrites the old value, and there is no churn date), so the book's
+  // average can't be rebuilt for a past month. Snapshot it on every run.
+  appendPledgeHistory(now, {
+    active: stats(res.filter(r => r.status === 'Active').map(r => r.pledge)),
+    pending: stats(res.filter(r => PENDING_STATUSES.includes(r.status)).map(r => r.pledge)),
+  });
+}
+
+// Same contract as health_history.js: one entry per calendar date, a same-day
+// rerun replaces it, nothing is ever dropped. Forward-only — first entry Nov 2026.
+const PLEDGE_HISTORY_FILE = 'pledge_history.js';
+
+function appendPledgeHistory(now, snap) {
+  const file = path.join(__dirname, PLEDGE_HISTORY_FILE);
+  let entries = [];
+  if (fs.existsSync(file)) {
+    const m = fs.readFileSync(file, 'utf8').match(/const PLEDGE_HISTORY = (\[[\s\S]*?\n\]);/);
+    // An unreadable history must not be silently replaced by a one-entry file.
+    if (!m) throw new Error(`${PLEDGE_HISTORY_FILE} exists but could not be parsed — not overwriting`);
+    entries = JSON.parse(m[1]);
+  }
+  const date = now.toISOString().slice(0, 10);
+  entries = entries.filter(e => e.date !== date);
+  entries.push({ date, ...snap });
+  entries.sort((a, b) => a.date.localeCompare(b.date));
+  const out = `// Glitter Operations Dashboard — Pledge History
+// Auto-generated by refresh.js — one snapshot per refresh date, oldest first.
+// Do not hand-edit; each full refresh appends (or replaces) the entry for its own date.
+// ${PLEDGE_TYPE} subscriptions with a pledge, $ per 4-week cycle. active = Contribution Status
+// Active · pending = pledged / invoiced, not paying.
+// ${entries.length} snapshots: ${entries[0].date} → ${entries[entries.length - 1].date}
+
+const PLEDGE_HISTORY = [
+${entries.map(e => '  ' + JSON.stringify(e)).join(',\n')}
+];
+`;
+  fs.writeFileSync(file, out);
+  console.log(`✅ ${PLEDGE_HISTORY_FILE} written — ${entries.length} snapshots, latest ${date}: ` +
+    `active n=${snap.active.n} mean $${snap.active.mean} · pending n=${snap.pending.n} mean $${snap.pending.mean}`);
 }
 
 // ── President's KPIs → OpsHub "Monthly Metrics" ──────────────────────────────
@@ -360,9 +493,16 @@ async function buildMonthlyMetrics(blocksFinal) {
   // shows as a reference). Guarded — it must not sink the whole refresh.
   let activeSubs = null;
   try {
+    // All statuses (~3,500 rows, ~35 requests — about 20 more than the
+    // Active-only pull): the pledge series needs churned and pending rows too.
     const subs = await fetchAll(encodeURIComponent('Active Subscriptions'),
-      ['Contribution Status'], "{Contribution Status}='Active'");
-    activeSubs = subs.length;
+      ['Contribution Status', 'Pledge', 'Funding Type (from Block)']);
+    activeSubs = subs.filter(r => r.fields['Contribution Status'] === 'Active').length;
+    try {
+      buildPledgeData(subs);
+    } catch (e) {
+      console.log(`  ⚠ Pledge data not written: ${e.message}`);
+    }
   } catch (e) {
     console.log(`  ⚠ Active Subscriptions unavailable: ${e.message}`);
   }
@@ -596,7 +736,11 @@ function appendHealthHistory(now, core, proj) {
   console.log(`✅ ${HISTORY_FILE} written — ${entries.length} snapshots, latest ${date}${delta}`);
 }
 
-main().catch(err => {
-  console.error('❌ Refresh failed:', err);
-  process.exit(1);
-});
+// Guarded so the pure builders can be required without a token (seeding, tests).
+if (require.main === module) {
+  main().catch(err => {
+    console.error('❌ Refresh failed:', err);
+    process.exit(1);
+  });
+}
+module.exports = { buildPledgeData };

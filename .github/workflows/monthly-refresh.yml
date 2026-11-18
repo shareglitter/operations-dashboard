@@ -41,7 +41,7 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data.js health_data.js health_history.js
+          git add data.js health_data.js health_history.js pledge_data.js pledge_history.js
 
           # Only commit if the data actually changed
           if git diff --cached --quiet; then
