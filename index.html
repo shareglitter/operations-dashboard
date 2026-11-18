@@ -153,6 +153,19 @@
     <div id="pledge-table" style="overflow-x:auto;margin-top:12px"></div>
     <div style="font-size:10px;color:#9b9b96;margin-top:6px;font-style:italic">Median = the middle pledge, so a few $200 pledges can't move it; it steps between the price points ($10 / $15 / $20 / $25) rather than drifting. The average moves by several dollars on one large pledge — months have only 20–110 signups. "Not funded yet" uses today's status, so for older months it means still waiting. The existing line has no history before Nov 2026: Airtable keeps only each subscription's current pledge.</div>
   </div>
+
+  <div class="chart-card" id="audit-card" style="display:none;margin-top:16px">
+    <div class="chart-title">Core Cleans vs Audits</div>
+    <div class="chart-sub">Per month · audits counted in the month they were done, core = audit of a clean on a block with no project · <span id="audit-asof"></span></div>
+    <div class="canvas-wrap"><canvas id="chart-audit"></canvas></div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div> Core cleans</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#d97706"></div> Audits of core cleans</div>
+    </div>
+    <div id="audit-summary" style="font-size:12px;color:#6b6b66;margin-top:14px;line-height:1.6"></div>
+    <div id="audit-table" style="overflow-x:auto;margin-top:12px"></div>
+    <div style="font-size:10px;color:#9b9b96;margin-top:6px;font-style:italic">Audits come live from the Airtable Audits table, so a month only counts audits that were entered there. "Other audits" are audits of project or grant cleans; "no clean linked" are audit rows with no Cleaning Log record attached, which can't be classified.</div>
+  </div>
 </div>
 
 <!-- ========== BLOCKS TAB ========== -->
@@ -386,9 +399,19 @@ const BAG_MAP = { rare:0.25, light:0.5, medium:0.75, heavy:1.25, severe:2.0 };
 // normal project. Keep in sync with GRANT_PROJECTS in refresh.js.
 const GRANT_PROJECTS = new Set(['SSNE', 'SSW', 'SSNW']);
 
+// Audits (cleaning base, by name). One row per audit, linked to at most one
+// Cleaning Log row. AUDIT_PROJECT is a lookup of that row's `Project`, which is
+// how an audit is classed core / project / grant — same rule as the cleans.
+// These three names must match Airtable and the proxy's ALLOW list exactly.
+const AUDITS_TABLE = 'Audits';
+const AUDIT_DATE = 'Audit Date/Time';
+const AUDIT_CLEAN_LINK = 'Linked Cleanup(s)';
+const AUDIT_PROJECT = 'Project';
+
 // ── State ──
 let allCleans = [...HIST_CLEANS];
 let allBlocks = [...HIST_BLOCKS];
+let auditMonths = null;   // {month: {core, other, unlinked}} once fetchAudits succeeds
 let blockFilter = 'all';
 let cleanFilter = 'all';
 let charts = {};
@@ -464,6 +487,29 @@ async function atProxy(payload) {
 async function fetchAT(tableId, fields, filter) {
   const data = await atProxy({ table: tableId, fields, filter: filter || undefined });
   return data.records;
+}
+
+// ── Audits per month (live, whole table — it is small) ──
+// Months are keyed in UTC like the cleaning series. On any failure the card
+// stays hidden; the console names the field Airtable or the proxy refused.
+async function fetchAudits() {
+  try {
+    const records = await fetchAT(AUDITS_TABLE, [AUDIT_DATE, AUDIT_CLEAN_LINK, AUDIT_PROJECT]);
+    const first = v => Array.isArray(v) ? (v.length ? v[0] : null) : (v === undefined ? null : v);
+    const out = {};
+    for (const r of records) {
+      const f = r.fields;
+      if (!f[AUDIT_DATE]) continue;
+      const month = String(f[AUDIT_DATE]).slice(0, 7);
+      const m = out[month] || (out[month] = { core: 0, other: 0, unlinked: 0 });
+      if (!first(f[AUDIT_CLEAN_LINK])) m.unlinked++;
+      else if (first(f[AUDIT_PROJECT])) m.other++;
+      else m.core++;
+    }
+    auditMonths = out;
+  } catch (e) {
+    console.warn('Could not fetch audits:', e);
+  }
 }
 
 // ── Compute current month cleaning data ──
@@ -794,6 +840,7 @@ function renderCleanCharts() {
   });
 
   renderPledgeChart();
+  renderAuditChart();
 }
 
 // ── Pledge: new vs existing subscribers ──
@@ -901,6 +948,61 @@ function renderPledgeChart() {
   }).join('');
   document.getElementById('pledge-table').innerHTML = `<table style="width:100%;border-collapse:collapse">
     <tr><th style="${th};text-align:left">Signup month</th><th style="${th}">New signups</th><th style="${th}">Median</th><th style="${th}">3-mo median</th><th style="${th}">Average</th><th style="${th}">3-mo average</th><th style="${th}">$25+ share</th><th style="${th}">Not funded yet</th><th style="${th}">Their median</th></tr>${rows}</table>`;
+}
+
+// ── Core cleans vs audits ──
+// Starts at the first month with any audit; the cleans side is the same
+// core_cleans series as the charts above (baked history + live current month).
+function renderAuditChart() {
+  const card = document.getElementById('audit-card');
+  const first = auditMonths && Object.keys(auditMonths).sort()[0];
+  const rows = first ? allCleans.filter(d => d.month >= first).map(d => {
+    const a = auditMonths[d.month] || { core: 0, other: 0, unlinked: 0 };
+    return { month: d.month, partial: !!d._partial, cleans: d.core_cleans, ...a, rate: d.core_cleans ? a.core / d.core_cleans : null };
+  }) : [];
+  if (!rows.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const pct = r => r == null ? '—' : (r * 100).toFixed(1) + '%';
+  const oneIn = r => r.core ? `1 in ${Math.round(r.cleans / r.core)}` : '—';
+  const label = r => shortM(r.month) + (r.partial ? '*' : '');
+
+  if (charts.audit) charts.audit.destroy();
+  charts.audit = new Chart(document.getElementById('chart-audit'), {
+    type: 'bar',
+    data: {
+      labels: rows.map(label),
+      datasets: [
+        { label: 'Core cleans', data: rows.map(r => r.cleans), backgroundColor: '#2563eb', borderRadius: 3, maxBarThickness: 56 },
+        { label: 'Audits of core cleans', data: rows.map(r => r.core), backgroundColor: '#d97706', borderRadius: 3, maxBarThickness: 56 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 24 } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        datalabels: { anchor: 'end', align: 'end', offset: 2, font: { size: 10, weight: '500' }, color: '#6b6b66', formatter: v => fN(v) },
+        tooltip: { callbacks: { afterBody: items => { const r = rows[items[0].dataIndex]; return `Audited: ${pct(r.rate)} (${oneIn(r)})`; } } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: { grid: { color: '#f0eee8' }, ticks: { font: { size: 10 } }, beginAtZero: true }
+      }
+    }
+  });
+
+  const b = t => `<strong style="color:#1a1a18">${t}</strong>`;
+  const line = r => `${shortM(r.month)}${r.partial ? ' so far' : ''}: ${b(fN(r.core))} audits against ${b(fN(r.cleans))} core cleans — ${b(pct(r.rate))} audited (${oneIn(r)})`;
+  const full = rows.filter(r => !r.partial), part = rows.find(r => r.partial);
+  document.getElementById('audit-summary').innerHTML = [full[full.length - 1], part].filter(Boolean).map(line).join('.<br>') + '.';
+  document.getElementById('audit-asof').textContent = `audit records start ${shortM(first)}` + (part ? ' · * month in progress' : '');
+
+  const td = 'padding:5px 8px;text-align:right;border-bottom:1px solid #f0eee8;font-size:11px';
+  const th = 'padding:6px 8px;text-align:right;font-size:10px;font-weight:600;color:#6b6b66;white-space:nowrap;border-bottom:1px solid #e0dfd8';
+  const body = rows.slice(-12).reverse().map(r => `<tr><td style="${td};text-align:left;font-weight:500;white-space:nowrap">${label(r)}</td><td style="${td}">${fN(r.cleans)}</td><td style="${td}">${fN(r.core)}</td><td style="${td};font-weight:600">${pct(r.rate)}</td><td style="${td}">${oneIn(r)}</td><td style="${td}">${fN(r.other)}</td><td style="${td}">${fN(r.unlinked)}</td></tr>`).join('');
+  document.getElementById('audit-table').innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <tr><th style="${th};text-align:left">Month</th><th style="${th}">Core cleans</th><th style="${th}">Audits of core cleans</th><th style="${th}">% audited</th><th style="${th}">Rate</th><th style="${th}">Other audits</th><th style="${th}">No clean linked</th></tr>${body}</table>`;
 }
 
 // ── Overdue funded blocks (Block Health tab) ──
@@ -2197,7 +2299,7 @@ async function init() {
     updateBlockStats();
 
     // Fetch live current-month data in background
-    await Promise.all([fetchCurrentMonthCleans(), fetchBlockData()]);
+    await Promise.all([fetchCurrentMonthCleans(), fetchBlockData(), fetchAudits()]);
 
     // Re-render with live data included
     renderCleanCharts();

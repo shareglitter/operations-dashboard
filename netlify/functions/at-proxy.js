@@ -36,6 +36,8 @@ const ALLOW = {
       'Compost Add-On', 'Last Modified - Compost Add-On', 'Compost Opt-In (from Subscriber)', 'Block Code', 'Member Since', 'Pledge'],
     // pilots.html service interest — opt-in flags synced from ActiveCampaign (Oct 2026)
     Subscribers: ['Snow opt-in', 'Leaves opt-in', 'TrashCan opt-in', 'Weeds opt-in', 'Compost Opt-In', 'Member Since'],
+    // index.html Core Cleans vs Audits card — names must match the AUDIT_* constants there
+    Audits: ['Audit Date/Time', 'Linked Cleanup(s)', 'Project'],
     // pilots.html ambassadors
     Ambassadors: ['Name', 'Status', 'Start Date', 'Assigned Blocks'],
     'Ambassador Shifts': ['Date', 'Ambassadors', 'Hours Worked', 'Doors Knocked', 'Activity Type', 'Pay Due'],

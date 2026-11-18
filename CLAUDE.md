@@ -314,6 +314,22 @@ The first entries were seeded on Nov 18, 2026 by running `buildPledgeData` over
 a pull through the proxy (`refresh.js` can be `require`d without a token for
 this). If either file is missing the card hides itself.
 
+## Core cleans vs audits (`renderAuditChart`)
+
+Morgan's ask (Nov 2026): are we auditing enough. Last card on **Cleaning &
+Revenue**: clustered bars of core cleans and audits of core cleans per month,
+plus a table with % audited. **Live only, nothing baked**: `fetchAudits` in
+`index.html` pulls the whole `Audits` table (cleaning base, by name) in one
+proxied request on load — `Audit Date/Time`, the `Linked Cleanup(s)` link (max one
+row) and the `Project` lookup. An audit is core when its
+clean has no project (same rule as the cleans), "other" when it has one, and
+"no clean linked" when the link is empty. Months key on the audit date in UTC.
+The cleans side is the existing `core_cleans` series. If the fetch fails the
+card hides itself. The field names live in the `AUDIT_*` constants and in the
+proxy's `ALLOW` (names confirmed by the user, Nov 18, 2026). As written the
+card had only been syntax-checked, never rendered against real data. If the table grows past a few thousand rows,
+bake completed months in `refresh.js` instead.
+
 ## Next steps / deferred
 
 **Deferred: single-request current-month summary (rollup).** `fetchCurrentMonthCleans`
