@@ -128,8 +128,9 @@ not as of month end — they cannot be back-computed. Run the refresh promptly.
 `fetchBlockData`) classify every block one of three ways — `blockKind()`:
 
 - **core** — Funding Type Resident / Community / Commercial, no `Projects` tag
-- **spons** (sponsored) — core Funding Type *but* a `Projects` tag (Area32,
-  TCB South St, WPNA…). Neighbor-funded blocks inside a project: somewhere
+- **spons** (sponsored) — core Funding Type *but* a `Projects` tag (TCB South
+  St, WPNA…; Area32 was here until Nov 2026, when its Funding Type became
+  Project). Neighbor-funded blocks inside a project: somewhere
   between true core and true grant, so they get their own line
 - **proj** — Funding Type = Project (SSNE / SSW / SSNW grants etc.)
 
@@ -210,6 +211,20 @@ The file was **seeded from git**: every monthly refresh had committed a fresh
 replayed as the first entries (latest commit per date). Same six tiers and the
 same heatmap axes throughout. Caveat: the `Exclude from Dashboard` filter only
 arrived in Sep 2026, so the Jul/Aug points include ~2 placeholder blocks.
+
+**Area32 back-adjustment (Nov 18, 2026).** Morgan reclassified the Area32
+sweep as project work, so `Funding Type` on its blocks was changed from
+Community to Project in Airtable. Because snapshots are frozen counts, the
+nine existing entries (and the Nov 2 `health_data.js`) were patched once by
+hand: **23 blocks moved from `core` to `proj`** in each. Jul 22 → Oct 2 they
+come out of `Sub Tier 3 (1-4)|Block Tier 1 (Weekly)` / Tier 2 (one sponsor
+subscription each, created Jul 5, 2026; cleaned weekly the whole time — confirmed
+by the user). The sweep ended with last cleans Sep 28 – Oct 7, so on Oct 26
+they come out of `Sub Tier 3 (1-4)|Not Funded` / Tier 5 and on Nov 2 out of
+`Sub Tier 4 (0)|Not Funded` / Tier 5 — rows inferred from the snapshot deltas
+(core Sub Tier 3 Not Funded fell 25 and Sub Tier 4 rose 24 between those two
+runs as the churned subscriptions stopped counting). This is the only hand
+edit in the file; don't replay the git seed over it.
 
 The tab shows a **Trend** section above the snapshot: four tiles (core total,
 funded, Tier 1–3, Tier 4–6) with deltas vs the previous and first snapshot, and
