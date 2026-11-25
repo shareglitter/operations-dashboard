@@ -1,11 +1,11 @@
 // Glitter Pilots Dashboard — Compost site usage (vendor pickup log)
-// Auto-generated 2026-11-24 by compost_refresh.js — do not hand-edit.
+// Auto-generated 2026-11-25 by compost_refresh.js — do not hand-edit.
 // Source: Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)
-// 157 pickups, 2026-04-01 → 2026-11-24, 5 sites, 0 flags
+// 158 pickups, 2026-04-01 → 2026-11-25, 5 sites, 0 flags
 
 const COMPOST_DATA = {
- "asOf": "2026-11-24",
- "generated": "2026-11-24",
+ "asOf": "2026-11-25",
+ "generated": "2026-11-25",
  "source": "Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)",
  "binGallons": 32,
  "lbsPerGallon": 4,
@@ -19,9 +19,9 @@ const COMPOST_DATA = {
   "FULL_OF_RECENT": 2
  },
  "network": {
-  "ratio": 1,
-  "weekGallons": 56,
-  "weekLbs": 224,
+  "ratio": 0.9,
+  "weekGallons": 64,
+  "weekLbs": 256,
   "weekPickups": 5
  },
  "sites": [
@@ -80,22 +80,22 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Wed",
    "first": "2026-04-01",
-   "last": "2026-11-18",
+   "last": "2026-11-25",
    "lastStatus": "pickup",
-   "lastGallons": 8,
-   "lastVisit": "2026-11-18",
-   "pickups": 34,
+   "lastGallons": 16,
+   "lastVisit": "2026-11-25",
+   "pickups": 35,
    "skips": 0,
    "empties": 0,
    "fulls": 4,
-   "gallons": 448,
-   "lbs": 1792,
+   "gallons": 464,
+   "lbs": 1856,
    "recentN": 3,
-   "recentAvg": 16,
+   "recentAvg": 10.7,
    "baselineN": 8,
-   "baselineAvg": 11,
-   "ratio": 1.45,
-   "recentFulls": 1
+   "baselineAvg": 14,
+   "ratio": 0.76,
+   "recentFulls": 0
   },
   {
    "key": "green",
@@ -1398,6 +1398,14 @@ const COMPOST_DATA = {
   {
    "site": "latona",
    "date": "2026-11-24",
+   "status": "pickup",
+   "gallons": 16,
+   "lbs": 64,
+   "desc": "1/2 full"
+  },
+  {
+   "site": "uber",
+   "date": "2026-11-25",
    "status": "pickup",
    "gallons": 16,
    "lbs": 64,
