@@ -1,11 +1,11 @@
 // Glitter Pilots Dashboard — Compost site usage (vendor pickup log)
-// Auto-generated 2026-11-25 by compost_refresh.js — do not hand-edit.
+// Auto-generated 2026-11-27 by compost_refresh.js — do not hand-edit.
 // Source: Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)
-// 158 pickups, 2026-04-01 → 2026-11-25, 5 sites, 0 flags
+// 160 pickups, 2026-04-01 → 2026-11-27, 5 sites, 2 flags
 
 const COMPOST_DATA = {
- "asOf": "2026-11-25",
- "generated": "2026-11-25",
+ "asOf": "2026-11-27",
+ "generated": "2026-11-27",
  "source": "Bennett Compost — Commercial Weight Tracking (vendor Google Sheet)",
  "binGallons": 32,
  "lbsPerGallon": 4,
@@ -20,8 +20,8 @@ const COMPOST_DATA = {
  },
  "network": {
   "ratio": 0.9,
-  "weekGallons": 64,
-  "weekLbs": 256,
+  "weekGallons": 56,
+  "weekLbs": 224,
   "weekPickups": 5
  },
  "sites": [
@@ -32,21 +32,21 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Fri",
    "first": "2026-04-03",
-   "last": "2026-11-20",
-   "lastStatus": "pickup",
-   "lastGallons": 8,
-   "lastVisit": "2026-11-20",
-   "pickups": 33,
+   "last": "2026-11-27",
+   "lastStatus": "empty",
+   "lastGallons": 0,
+   "lastVisit": "2026-11-27",
+   "pickups": 34,
    "skips": 1,
-   "empties": 2,
+   "empties": 3,
    "fulls": 6,
    "gallons": 496,
    "lbs": 1984,
    "recentN": 3,
-   "recentAvg": 8,
+   "recentAvg": 5.3,
    "baselineN": 8,
    "baselineAvg": 10,
-   "ratio": 0.8,
+   "ratio": 0.53,
    "recentFulls": 0
   },
   {
@@ -56,16 +56,16 @@ const COMPOST_DATA = {
    "note": null,
    "day": "Fri",
    "first": "2026-04-03",
-   "last": "2026-11-20",
+   "last": "2026-11-27",
    "lastStatus": "pickup",
    "lastGallons": 16,
-   "lastVisit": "2026-11-20",
-   "pickups": 34,
+   "lastVisit": "2026-11-27",
+   "pickups": 35,
    "skips": 0,
    "empties": 0,
    "fulls": 5,
-   "gallons": 584,
-   "lbs": 2336,
+   "gallons": 600,
+   "lbs": 2400,
    "recentN": 3,
    "recentAvg": 16,
    "baselineN": 8,
@@ -1410,9 +1410,38 @@ const COMPOST_DATA = {
    "gallons": 16,
    "lbs": 64,
    "desc": "1/2 full"
+  },
+  {
+   "site": "christian",
+   "date": "2026-11-27",
+   "status": "empty",
+   "gallons": 0,
+   "lbs": 0,
+   "desc": "empty"
+  },
+  {
+   "site": "kimball",
+   "date": "2026-11-27",
+   "status": "pickup",
+   "gallons": 16,
+   "lbs": 64,
+   "desc": "1/2 full"
   }
  ],
- "flags": [],
+ "flags": [
+  {
+   "site": "christian",
+   "level": "urgent",
+   "kind": "empty",
+   "text": "Bin was empty on Nov 27 — nobody is using it, or nobody can reach it"
+  },
+  {
+   "site": "christian",
+   "level": "investigate",
+   "kind": "drop",
+   "text": "Usage dropped: last 3 pickups average 5.3 gal vs 10 gal over the 8 before (−47%), while the other sites held (−11%) — check for contamination, access or signage"
+  }
+ ],
  "issues": [
   "1227 Latona St 9/1/2026: description \"1/4 full\" ≠ 16 gal — using the gallons column",
   "840 N Uber St 6/24/2026: description \"1/4 full\" ≠ 16 gal — using the gallons column"
